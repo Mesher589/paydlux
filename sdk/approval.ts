@@ -98,6 +98,11 @@ export class ApprovalDesk {
     return [...this.pending.values()].sort((a, b) => b.at - a.at);
   }
 
+  /** Portal-facing items: Pending + the exact digest the wallet must sign. */
+  listForPortal() {
+    return this.list().map((p) => ({ ...p, digest: this.approvalDigest(p.payment) }));
+  }
+
   /** The exact EIP-712 digest the human is being asked to approve. */
   approvalDigest(p: PaymentPayload): Hex {
     // identical composition to the contract's _intentDigest: padded abi.encode
@@ -154,7 +159,8 @@ export class ApprovalDesk {
       signature: approvalSig,
     }).catch(() => null);
     if (fromWallet !== expectedApprover && fromRaw !== expectedApprover) {
-      p.status = "denied";
+      // NOT a denial: the request stays pending so the human can retry with a
+      // correct signature. Only an explicit Deny ends it.
       p.reason = "approval signature is not from the mandate approver";
       throw new Error(p.reason);
     }
@@ -201,7 +207,7 @@ export class ApprovalDesk {
         res.end(PORTAL_HTML);
         return;
       }
-      if (url.pathname === "/api/pending") return send(200, { items: this.list() });
+      if (url.pathname === "/api/pending") return send(200, { items: this.listForPortal() });
 
       if (req.method === "POST" && url.pathname.startsWith("/api/")) {
         const parts = url.pathname.split("/"); // /api/<action>/<id>
@@ -268,8 +274,8 @@ async function approve(id){
     const acc = (await window.ethereum.request({method:'eth_requestAccounts'}))[0];
     const d = await (await fetch('/api/pending')).json();
     const item = d.items.find(x=>x.id===id);
-    // the wallet signs the exact payment digest — personal_sign wraps it EIP-191
-    const sig = await window.ethereum.request({method:'eth_sign', params:[acc, item.digest]});
+    // personal_sign wraps the digest EIP-191; the contract accepts that form
+    const sig = await window.ethereum.request({method:'personal_sign', params:[item.digest, acc]});
     return act(id,'approve',sig);
   }
   return act(id,'approve',undefined); // dev key fallback
