@@ -234,6 +234,22 @@ export class ApprovalDesk {
             return send(200, { ok: true, tx: p.tx });
           }
           if (action === "deny") return send(200, { ok: true, status: this.deny(id, j.reason).status });
+          if (action === "adopt") {
+            // Delegate the approver role to a browser wallet (the human's real
+            // signer). Only the mandate's principal (dev key here) can do this.
+            if (!j.address) return send(400, { error: "address required" });
+            if (!this.cfg.humanKey) return send(400, { error: "no principal key to delegate with" });
+            const p = this.pending.get(id);
+            if (!p) return send(404, { error: "unknown payment" });
+            const principalWallet = createWalletClient({ account: privateKeyToAccount(this.cfg.humanKey), transport: http(this.cfg.rpcUrl) }) as never;
+            const tx = await principalWallet.writeContract({
+              address: this.cfg.vault, abi: vaultAbi as never, functionName: "setApprovalPolicy",
+              args: [p.payment.intent.mandateId, true, j.address as Address],
+            });
+            await this.public.waitForTransactionReceipt({ hash: tx });
+            console.log(`[desk] approver for ${p.payment.intent.mandateId.slice(0, 10)}… is now ${j.address}`);
+            return send(200, { ok: true, tx, approver: j.address });
+          }
         } catch (e) {
           return send(409, { error: (e as Error).message });
         }
@@ -264,6 +280,7 @@ const PORTAL_HTML = `<!doctype html>
 <div id="list"></div>
 <script>
 const fmt = n => '$' + (Number(n)/1e6).toFixed(2);
+let adopted = null; // wallet address we've already delegated approver rights to
 async function act(id, kind, sig){
   const r = await fetch('/api/'+kind+'/'+id, {method:'POST', headers:{'content-type':'application/json'},
     body: JSON.stringify({signature: sig})});
@@ -272,6 +289,16 @@ async function act(id, kind, sig){
 async function approve(id){
   if (window.ethereum) {
     const acc = (await window.ethereum.request({method:'eth_requestAccounts'}))[0];
+    if (adopted !== acc) {
+      // first approval from this wallet: the mandate's principal delegates the
+      // approver role to it (one on-chain tx). Real product: the human signs
+      // this delegation themselves; in the demo the held principal key does it.
+      const r = await fetch('/api/adopt/'+id, {method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({address: acc})});
+      const j = await r.json();
+      if (j.error) return alert(j.error);
+      adopted = acc;
+    }
     const d = await (await fetch('/api/pending')).json();
     const item = d.items.find(x=>x.id===id);
     // personal_sign wraps the digest EIP-191; the contract accepts that form
