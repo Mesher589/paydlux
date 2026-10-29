@@ -204,7 +204,10 @@ export class ApprovalDesk {
       if (url.pathname === "/api/pending") return send(200, { items: this.list() });
 
       if (req.method === "POST" && url.pathname.startsWith("/api/")) {
-        const id = url.pathname.split("/").pop()!;
+        const parts = url.pathname.split("/"); // /api/<action>/<id>
+        const action = parts[2];
+        const id = parts[3];
+        if (!action || !id) return send(400, { error: "bad api path" });
         const body = await new Promise<string>((r) => {
           let acc = "";
           req.on("data", (c) => (acc += c));
@@ -212,7 +215,7 @@ export class ApprovalDesk {
         });
         const j = JSON.parse(body || "{}") as { signature?: Hex; reason?: string };
         try {
-          if (url.pathname.endsWith("/approve")) {
+          if (action === "approve") {
             if (!j.signature && !this.cfg.humanKey) return send(400, { error: "no signature and no dev key" });
             let sig = j.signature;
             if (!sig) {
@@ -224,7 +227,7 @@ export class ApprovalDesk {
             const p = await this.approve(id, sig as Hex);
             return send(200, { ok: true, tx: p.tx });
           }
-          if (url.pathname.endsWith("/deny")) return send(200, { ok: true, status: this.deny(id, j.reason).status });
+          if (action === "deny") return send(200, { ok: true, status: this.deny(id, j.reason).status });
         } catch (e) {
           return send(409, { error: (e as Error).message });
         }
