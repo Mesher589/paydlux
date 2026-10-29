@@ -137,6 +137,14 @@ async function main() {
     log("reusing the old approval for a new payment:", (e as Error).message);
   }
 
+  if (process.env.KEEP_OPEN) {
+    // leave the portal + API running so a human can play with it in a browser:
+    // two fresh payments sit waiting for approval at http://127.0.0.1:4022
+    await client.fetchPaid("http://127.0.0.1:4021/api/report", { method: "POST", nonce: 3n, body: JSON.stringify({ q: "sales 2026" }) });
+    await client.fetchPaid("http://127.0.0.1:4021/api/report", { method: "POST", nonce: 4n, body: JSON.stringify({ q: "competitor scan" }) });
+    log("portal stays open: http://127.0.0.1:4022  (Ctrl+C to stop)");
+    return;
+  }
   server.close();
   log("done");
   process.exit(0); // the gateway http server would otherwise keep the loop alive
