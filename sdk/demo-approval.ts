@@ -22,12 +22,17 @@ import { ApprovalDesk } from "./approval.ts";
 import { PayingClient } from "./client.ts";
 
 const RPC = process.env.RPC ?? "http://127.0.0.1:8545";
-const CHAIN = 31337;
+const CHAIN = Number(process.env.CHAIN_ID ?? 31337);
+// LIVE mode: point at an already-deployed vault (e.g. Base Sepolia fork) with
+// the real Circle USDC instead of deploying mocks.
+const LIVE_VAULT = (process.env.VAULT ?? "") as Address;
+const LIVE_USDC = (process.env.USDC ?? "") as Address;
+const chain = CHAIN === 31337 ? anvil : { ...anvil, id: CHAIN };
 
 // anvil's publicly known dev accounts — testnet only
-const DEPLOYER_PK = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex;
+const DEPLOYER_PK = (process.env.DEPLOYER_PK ?? "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80") as Hex;
 const AGENT_PK = "0x7c852118294c51e65671ff36ef90c92713420de93576b45ec20037947fe9321c" as Hex;
-const PRINCIPAL_PK = "0x59c6995e998f97a5a0044966f0945314d1a65666ae8c7ee7247f89866a69042b" as Hex;
+const PRINCIPAL_PK = (process.env.PRINCIPAL_PK ?? "0x59c6995e998f97a5a0044966f0945314d1a65666ae8c7ee7247f89866a69042b") as Hex;
 const PAYEE_PK = "0xc63d3d5163677f90696032886a4b38c16545e459952c7a5d27946f16367779e9" as Hex;
 const FEE_PK = "0x18000e09734a77f81ee1c507d18f0e00f7b6540ba9fa7f10aa28e1ae1982892c" as Hex;
 
@@ -37,9 +42,9 @@ const agent = privateKeyToAccount(AGENT_PK);
 const payee = privateKeyToAccount(PAYEE_PK);
 const feeTo = privateKeyToAccount(FEE_PK);
 
-const publicClient = createPublicClient({ chain: anvil, transport: http(RPC) }) as never;
-const wallet = createWalletClient({ account: deployer, chain: anvil, transport: http(RPC) }) as never;
-const principalWallet = createWalletClient({ account: principal, chain: anvil, transport: http(RPC) }) as never;
+const publicClient = createPublicClient({ chain, transport: http(RPC) }) as never;
+const wallet = createWalletClient({ account: deployer, chain, transport: http(RPC) }) as never;
+const principalWallet = createWalletClient({ account: principal, chain, transport: http(RPC) }) as never;
 
 const USDC = 1_000_000n;
 const log = (...a: unknown[]) => console.log("•", ...a);
@@ -57,31 +62,54 @@ async function fund() {
 async function main() {
   await fund();
 
-  const usdcArtifact = JSON.parse(readFileSync(new URL("../contracts/out/AgentVault.t.sol/MockUSDC.json", import.meta.url), "utf-8"));
-  const usdcTx = await wallet.deployContract({ abi: usdcArtifact.abi, bytecode: usdcArtifact.bytecode.object, args: [10_000n * USDC] });
-  const usdc = (await publicClient.waitForTransactionReceipt({ hash: usdcTx })).contractAddress as Address;
+  let usdc: Address;
+  let vault: Address;
+  if (LIVE_VAULT) {
+    usdc = LIVE_USDC;
+    vault = LIVE_VAULT;
+    log("LIVE mode — using deployed vault", vault, "with USDC", usdc);
+  } else {
+    const usdcArtifact = JSON.parse(readFileSync(new URL("../contracts/out/AgentVault.t.sol/MockUSDC.json", import.meta.url), "utf-8"));
+    const usdcTx = await wallet.deployContract({ abi: usdcArtifact.abi, bytecode: usdcArtifact.bytecode.object, args: [10_000n * USDC] });
+    usdc = (await publicClient.waitForTransactionReceipt({ hash: usdcTx })).contractAddress as Address;
 
-  const vaultArtifact = JSON.parse(readFileSync(new URL("../contracts/out/AgentVault.sol/AgentVault.json", import.meta.url), "utf-8"));
-  const vaultTx = await wallet.deployContract({ abi: vaultAbi as never, bytecode: vaultArtifact.bytecode.object as Hex, args: [usdc, feeTo.address, 100n] });
-  const vault = (await publicClient.waitForTransactionReceipt({ hash: vaultTx })).contractAddress as Address;
+    const vaultArtifact = JSON.parse(readFileSync(new URL("../contracts/out/AgentVault.sol/AgentVault.json", import.meta.url), "utf-8"));
+    const vaultTx = await wallet.deployContract({ abi: vaultAbi as never, bytecode: vaultArtifact.bytecode.object as Hex, args: [usdc, feeTo.address, 100n] });
+    vault = (await publicClient.waitForTransactionReceipt({ hash: vaultTx })).contractAddress as Address;
+  }
   const creditAddr = (await publicClient.readContract({ address: vault, abi: vaultAbi as never, functionName: "credit" })) as Address;
   log("vault", vault);
 
-  await wallet.writeContract({ abi: usdcArtifact.abi as never, address: usdc, functionName: "mint", args: [principal.address, 500n * USDC] });
-  await principalWallet.writeContract({ abi: usdcArtifact.abi as never, address: usdc, functionName: "approve", args: [vault, 500n * USDC] });
-  await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "deposit", args: [500n * USDC] });
+  const erc20 = [
+    { type: "function", name: "approve", stateMutability: "nonpayable", inputs: [{ type: "address" }, { type: "uint256" }], outputs: [{ type: "bool" }] },
+    { type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] },
+  ] as never;
+  if (!LIVE_VAULT) {
+    await wallet.writeContract({ abi: erc20, address: usdc, functionName: "mint", args: [principal.address, 500n * USDC] } as never);
+  }
+  const have = (await publicClient.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [principal.address] })) as bigint;
+  const deposit = have < 5n * USDC ? have : 5n * USDC;
+  log("principal holds", formatUnits(have, 6), "USDC — depositing", formatUnits(deposit, 6));
+  if (deposit > 0n) {
+    await principalWallet.writeContract({ abi: erc20, address: usdc, functionName: "approve", args: [vault, deposit] });
+    await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "deposit", args: [deposit] });
+  }
+  const creditBal = (await publicClient.readContract({ address: creditAddr, abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "balanceOf", args: [principal.address] })) as bigint;
+  const budget = creditBal;
+  log("principal credit balance:", formatUnits(budget, 6));
 
+  const PRICE = 1n * USDC;
   const now = BigInt(await (await publicClient.getBlock()).timestamp);
   const m: Mandate = {
     principal: principal.address,
     agent: agent.address,
     validAfter: now - 1n,
     validUntil: now + 30n * 86400n,
-    perCallMax: 5n * USDC,
-    dailyBudget: 50n * USDC,
-    totalBudget: 200n * USDC,
+    perCallMax: 2n * USDC,
+    dailyBudget: 5n * USDC,
+    totalBudget: budget,
     payeeRoot: "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex,
-    nonce: 1n,
+    nonce: BigInt(process.env.MANDATE_NONCE ?? 1),
   };
   const d = domain({ chainId: CHAIN, verifyingContract: vault });
   const digest = mandateDigest(d, m);
@@ -102,7 +130,7 @@ async function main() {
   const gw = new Gateway({
     rpcUrl: RPC, chainId: CHAIN, vault, payee: payee.address, settleKey: DEPLOYER_PK,
     mandate: mandateId, desk,
-    pricing: [{ uri: "/api/report", price: 3n * USDC, requiresApproval: true }],
+    pricing: [{ uri: "/api/report", price: PRICE, requiresApproval: true }],
   });
   await gw.listen(4021);
   log("approval portal: http://127.0.0.1:4022  |  priced API: http://127.0.0.1:4021/api/report");
