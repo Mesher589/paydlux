@@ -27,12 +27,19 @@ AgentVault puts the guardrails **on-chain**:
 ## Status
 
 Research prototype. 61 contract tests pass (incl. 4×512-run fuzz suites over
-the core invariants). End-to-end demos run against a local anvil chain.
+the core invariants). End-to-end demos run against a local anvil chain; the
+deploy script is verified against a live Base Sepolia fork.
 **Not audited. Do not use with real funds.**
+
+The Approval Desk — what a human sees when an agent wants to spend:
+
+![Approval Desk](docs/approval-desk.png)
 
 ```
 contracts/src/AgentVault.sol      vault, mandates, settle, escrow, sessions, batches
 contracts/src/AgentCreditToken.sol  USDC-backed credit token (deferred settlement)
+contracts/src/MockUSDC.sol        testnet faucet token (anyone can mint)
+contracts/script/Deploy.s.sol     full-stack testnet deploy (Base Sepolia)
 sdk/core.ts                       EIP-712 typed data (mirrors the contract exactly)
 sdk/gateway.ts                    x402-style HTTP 402 resource server
 sdk/client.ts                     paying agent client
