@@ -88,11 +88,13 @@ async function main() {
     await wallet.writeContract({ abi: erc20, address: usdc, functionName: "mint", args: [principal.address, 500n * USDC] } as never);
   }
   const have = (await publicClient.readContract({ address: usdc, abi: erc20, functionName: "balanceOf", args: [principal.address] })) as bigint;
-  const deposit = have < 5n * USDC ? have : 5n * USDC;
+  const deposit = have;
   log("principal holds", formatUnits(have, 6), "USDC — depositing", formatUnits(deposit, 6));
   if (deposit > 0n) {
-    await principalWallet.writeContract({ abi: erc20, address: usdc, functionName: "approve", args: [vault, deposit] });
-    await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "deposit", args: [deposit] });
+    const ap = await principalWallet.writeContract({ abi: erc20, address: usdc, functionName: "approve", args: [vault, deposit] });
+    await publicClient.waitForTransactionReceipt({ hash: ap });
+    const dp = await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "deposit", args: [deposit] });
+    await publicClient.waitForTransactionReceipt({ hash: dp }); // must mine before any read
   }
   const creditBal = (await publicClient.readContract({ address: creditAddr, abi: [{ type: "function", name: "balanceOf", stateMutability: "view", inputs: [{ type: "address" }], outputs: [{ type: "uint256" }] }], functionName: "balanceOf", args: [principal.address] })) as bigint;
   const budget = creditBal;
@@ -106,7 +108,7 @@ async function main() {
     validAfter: now - 1n,
     validUntil: now + 30n * 86400n,
     perCallMax: 2n * USDC,
-    dailyBudget: 5n * USDC,
+    dailyBudget: budget,
     totalBudget: budget,
     payeeRoot: "0x0000000000000000000000000000000000000000000000000000000000000000" as Hex,
     nonce: BigInt(process.env.MANDATE_NONCE ?? 1),
@@ -114,14 +116,16 @@ async function main() {
   const d = domain({ chainId: CHAIN, verifyingContract: vault });
   const digest = mandateDigest(d, m);
   const mSig = (await principal.signMessage({ message: { raw: digest } })) as Hex;
-  await principalWallet.writeContract({
+  const rmTx = await principalWallet.writeContract({
     abi: vaultAbi as never, address: vault, functionName: "registerMandate",
     args: [m.principal, m.agent, m.validAfter, m.validUntil, m.perCallMax, m.dailyBudget, m.totalBudget, m.payeeRoot, m.nonce, mSig],
   });
+  await publicClient.waitForTransactionReceipt({ hash: rmTx });
   const mandateId = digest;
 
   // the human turns on "always ask me first" for this mandate
-  await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "setApprovalPolicy", args: [mandateId, true, principal.address] });
+  const apTx = await principalWallet.writeContract({ abi: vaultAbi as never, address: vault, functionName: "setApprovalPolicy", args: [mandateId, true, principal.address] });
+  await publicClient.waitForTransactionReceipt({ hash: apTx });
   log("mandate registered — human approval REQUIRED for every payment");
 
   // desk + gateway
