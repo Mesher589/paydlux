@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paydlux — agent payments a human approves</title>
+<meta name="description" content="Paydlux gives AI agents a payment rail on Stellar with real USDC. Every purchase is checked against an on-chain spending mandate and held until you approve it from your phone.">
+<meta property="og:title" content="Paydlux — agent payments a human approves">
+<meta property="og:description" content="Spending mandates enforced on the Stellar ledger. Agents ask, humans approve, sellers get paid in USDC.">
+<meta property="og:type" content="website">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0d0f0e;
+    --ink-2:#141716;
+    --ink-3:#1c201e;
+    --line:#2a2f2c;
+    --line-soft:#202523;
+    --text:#eceae4;
+    --muted:#9aa39d;
+    --dim:#6d756f;
+    --accent:#e8b04b;
+    --accent-ink:#1a1408;
+    --ok:#5fbf8b;
+    --no:#d9615c;
+    --serif:"Instrument Serif",Georgia,serif;
+    --sans:"Archivo",system-ui,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,monospace;
+    --max:1180px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    margin:0;background:var(--ink);color:var(--text);
+    font-family:var(--sans);font-size:16.5px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 26px}
+  .eyebrow{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 14px;
+  }
+  h1,h2,h3{margin:0;font-weight:400;letter-spacing:-.01em}
+  h1{font-family:var(--serif);font-size:clamp(38px,6.1vw,68px);line-height:1.04}
+  h2{font-family:var(--serif);font-size:clamp(27px,3.5vw,40px);line-height:1.12}
+  h3{font-family:var(--sans);font-weight:600;font-size:17px;letter-spacing:0}
+  em{font-family:var(--serif);font-style:italic;color:var(--accent)}
+  p{margin:0}
+  .lede{color:var(--muted);font-size:18px;max-width:56ch}
+
+  /* header */
+  header{
+    position:sticky;top:0;z-index:40;background:rgba(13,15,14,.86);
+    backdrop-filter:blur(9px);border-bottom:1px solid var(--line-soft);
+  }
+  .bar{display:flex;align-items:center;gap:26px;height:62px}
+  .mark{font-family:var(--serif);font-size:23px;letter-spacing:.01em}
+  .mark b{color:var(--accent);font-weight:400}
+  nav{margin-left:auto;display:flex;gap:24px;align-items:center}
+  nav a{font-size:14.5px;color:var(--muted);text-decoration:none}
+  nav a:hover{color:var(--text)}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    font-family:var(--sans);font-size:14.5px;font-weight:600;
+    padding:11px 18px;border-radius:3px;text-decoration:none;
+    border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);
+    min-height:44px;
+  }
+  .btn:hover{background:#f2c268}
+  .btn.ghost{background:transparent;border-color:var(--line);color:var(--text)}
+  .btn.ghost:hover{border-color:var(--muted);background:var(--ink-2)}
+  @media(max-width:760px){nav .lnk{display:none}}
+
+  /* hero */
+  .hero{padding:78px 0 66px;border-bottom:1px solid var(--line-soft)}
+  .hero-grid{display:grid;grid-template-columns:1.08fr .92fr;gap:56px;align-items:start}
+  .hero h1{margin-bottom:20px}
+  .cta{display:flex;gap:12px;margin-top:30px;flex-wrap:wrap}
+  .trust{margin-top:26px;font-family:var(--mono);font-size:12px;color:var(--dim);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .trust span{border:1px solid var(--line);padding:5px 9px;border-radius:3px}
+
+  /* approval card */
+  .desk{border:1px solid var(--line);background:var(--ink-2);border-radius:5px;overflow:hidden}
+  .desk-top{
+    display:flex;align-items:center;gap:10px;padding:13px 16px;
+    border-bottom:1px solid var(--line);background:var(--ink-3);
+    font-family:var(--mono);font-size:12px;color:var(--muted);
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex:none}
+  .desk-body{padding:18px 16px}
+  .row{display:flex;justify-content:space-between;gap:14px;padding:8px 0;border-bottom:1px dashed var(--line-soft)}
+  .row:last-of-type{border-bottom:0}
+  .k{font-family:var(--mono);font-size:11.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em}
+  .v{font-family:var(--mono);font-size:13.5px;text-align:right}
+  .v.big{font-size:20px;color:var(--text)}
+  .meter{height:5px;background:var(--ink-3);border:1px solid var(--line);border-radius:2px;margin:14px 0 4px;overflow:hidden}
+  .meter i{display:block;height:100%;background:var(--accent);width:100%;transition:width .35s ease}
+  .acts{display:flex;gap:10px;margin-top:16px}
+  .acts button{
+    flex:1;font-family:var(--sans);font-size:14.5px;font-weight:600;cursor:pointer;
+    padding:12px;border-radius:3px;min-height:44px;
+  }
+  #ok{border:1px solid var(--ok);background:var(--ok);color:#0b1a12}
+  #ok:hover{background:#74cf9d}
+  #no{border:1px solid var(--line);background:transparent;color:var(--muted)}
+  #no:hover{border-color:var(--no);color:var(--no)}
+  .log{
+    font-family:var(--mono);font-size:12px;line-height:1.75;padding:12px 16px;
+    border-top:1px solid var(--line);background:var(--ink);color:var(--muted);min-height:74px;
+  }
+  .log b{font-weight:500}
+  .l-ok{color:var(--ok)} .l-no{color:var(--no)} .l-warn{color:var(--accent)}
+  .note{font-family:var(--mono);font-size:11px;color:var(--dim);padding:10px 16px;border-top:1px solid var(--line-soft)}
+
+  /* sections */
+  section{padding:74px 0;border-bottom:1px solid var(--line-soft)}
+  .sec-head{max-width:64ch;margin-bottom:40px}
+  .sec-head h2{margin-bottom:12px}
+  .sec-head p{color:var(--muted)}
+
+  /* flow */
+  .flow{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .step{padding:20px 18px 22px;border-right:1px solid var(--line);background:var(--ink-2);position:relative}
+  .step:last-child{border-right:0}
+  .step .n{font-family:var(--mono);font-size:11px;color:var(--dim);letter-spacing:.1em}
+  .step h3{margin:8px 0 8px;font-size:15.5px}
+  .step p{font-size:14px;color:var(--muted)}
+  .step.you{background:var(--ink-3)}
+  .step.you .n{color:var(--accent)}
+  .step.paid{background:#12201a}
+  .step.paid .n{color:var(--ok)}
+
+  /* mandate block */
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:44px;align-items:start}
+  pre{
+    margin:0;font-family:var(--mono);font-size:13px;line-height:1.85;color:var(--muted);
+    background:var(--ink-2);border:1px solid var(--line);border-radius:5px;padding:20px 22px;overflow:auto;
+  }
+  pre .c{color:var(--dim)} pre .a{color:var(--accent)} pre .g{color:var(--ok)}
+  .pts{list-style:none;margin:0;padding:0}
+  .pts li{padding:16px 0;border-bottom:1px solid var(--line-soft);color:var(--muted);font-size:15.5px}
+  .pts li:first-child{padding-top:0}
+  .pts li strong{color:var(--text);font-weight:600;display:block;margin-bottom:3px;font-size:16px}
+
+  /* audiences */
+  .aud{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .aud>div{padding:30px 28px 32px}
+  .aud>div:first-child{border-right:1px solid var(--line);background:var(--ink-2)}
+  .aud h3{margin-bottom:10px;font-size:19px;font-family:var(--serif);font-weight:400}
+  .aud p{color:var(--muted);font-size:15.5px;margin-bottom:16px}
+  .aud ul{margin:0;padding-left:18px;color:var(--muted);font-size:15px}
+  .aud li{margin-bottom:9px}
+  .aud code{font-family:var(--mono);font-size:12.5px;background:var(--ink);border:1px solid var(--line);padding:2px 6px;border-radius:3px;color:var(--text)}
+
+  /* facts */
+  .facts{display:grid;grid-template-columns:repeat(4,1fr);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .fact{padding:22px 20px;border-right:1px solid var(--line)}
+  .fact:last-child{border-right:0}
+  .fact .num{font-family:var(--mono);font-size:22px;color:var(--accent);letter-spacing:-.01em}
+  .fact .lbl{font-size:13.5px;color:var(--muted);margin-top:6px}
+  .src{font-family:var(--mono);font-size:11px;color:var(--dim);margin-top:14px}
+
+  /* status */
+  .status{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .st{padding:22px 20px;border-right:1px solid var(--line)}
+  .st:last-child{border-right:0}
+  .st .tag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+  .t-done{color:var(--ok)} .t-now{color:var(--accent)} .t-later{color:var(--dim)}
+  .st p{font-size:14.5px;color:var(--muted);margin-top:9px}
+
+  /* signup */
+  .join{display:grid;grid-template-columns:1.1fr .9fr;gap:44px;align-items:center}
+  form{display:flex;gap:10px;flex-wrap:wrap}
+  input[type=email]{
+    flex:1;min-width:220px;font-family:var(--sans);font-size:15.5px;color:var(--text);
+    background:var(--ink-2);border:1px solid var(--line);border-radius:3px;padding:13px 15px;min-height:44px;
+  }
+  input[type=email]:focus{outline:none;border-color:var(--accent)}
+  .fine{font-family:var(--mono);font-size:11.5px;color:var(--dim);margin-top:12px}
+
+  footer{padding:34px 0 44px}
+  .foot{display:flex;gap:20px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .foot a{color:var(--muted);text-decoration:none}
+  .foot a:hover{color:var(--text)}
+  .foot .sp{margin-left:auto}
+
+  @media(max-width:960px){
+    .hero-grid,.two,.aud,.join{grid-template-columns:1fr}
+    .aud>div:first-child{border-right:0;border-bottom:1px solid var(--line)}
+    .flow{grid-template-columns:1fr 1fr}
+    .step{border-bottom:1px solid var(--line)}
+    .facts,.status{grid-template-columns:1fr 1fr}
+    .fact,.st{border-bottom:1px solid var(--line)}
+  }
+  @media(max-width:560px){
+    .flow,.facts,.status{grid-template-columns:1fr}
+    section{padding:56px 0}
+    .hero{padding:52px 0 44px}
+  }
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap bar">
+    <div class="mark">Pay<b>dlux</b></div>
+    <nav>
+      <a class="lnk" href="#how">How it works</a>
+      <a class="lnk" href="#mandate">Mandates</a>
+      <a class="lnk" href="#sellers">For sellers</a>
+      <a class="lnk" href="#status">Status</a>
+      <a class="btn" href="mailto:founder@paydlux.com?subject=Early%20access%20to%20Paydlux">Get early access</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<div class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <p class="eyebrow">Payments for AI agents · Stellar · USDC</p>
+      <h1>Your agent can spend money.<br>It can&rsquo;t spend it <em>without you.</em></h1>
+      <p class="lede">Paydlux puts every agent purchase behind a spending mandate written on the Stellar ledger. The agent asks. The seller waits. You tap Approve on your phone. A hijacked agent can&rsquo;t overpay, because the cap isn&rsquo;t in the agent&rsquo;s software — it&rsquo;s on the chain.</p>
+      <div class="cta">
+        <a class="btn" href="mailto:founder@paydlux.com?subject=Early%20access%20to%20Paydlux">Get early access</a>
+        <a class="btn ghost" href="https://github.com/Mesher589/agentvault">Read the code</a>
+      </div>
+      <div class="trust">
+        <span>open source</span>
+        <span>Circle USDC on Stellar</span>
+        <span>no custody of your funds</span>
+      </div>
+    </div>
+
+    <div class="desk" aria-label="Approval desk demo">
+      <div class="desk-top"><span class="dot"></span> approval desk &nbsp;·&nbsp; pay_0007 pending</div>
+      <div class="desk-body">
+        <div class="row"><span class="k">agent</span><span class="v">research-bot-03</span></div>
+        <div class="row"><span class="k">buying</span><span class="v">POST /api/market-data</span></div>
+        <div class="row"><span class="k">seller</span><span class="v">datafeed.example</span></div>
+        <div class="row"><span class="k">amount</span><span class="v big">$2.00 USDC</span></div>
+        <div class="row"><span class="k">mandate left today</span><span class="v" id="bal">$6.00</span></div>
+        <div class="meter"><i id="bar"></i></div>
+        <div class="acts">
+          <button id="ok" type="button">Approve</button>
+          <button id="no" type="button">Deny</button>
+        </div>
+      </div>
+      <div class="log" id="log"><b>waiting for you.</b> nothing moves until you sign.</div>
+      <div class="note">interactive mock — no real payment, no wallet, no keys</div>
+    </div>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">What actually happens</p>
+      <h2>Five steps. One of them is you.</h2>
+      <p>The agent never holds your money. It only ever asks for permission, and the ask carries the exact request it wants to make — so the thing you approve is the thing that happens.</p>
+    </div>
+    <div class="flow">
+      <div class="step">
+        <div class="n">01</div>
+        <h3>Agent asks</h3>
+        <p>It calls an API and gets back <code>402 Payment Required</code> with a price. Same standard every agent payment rail already speaks.</p>
+      </div>
+      <div class="step">
+        <div class="n">02</div>
+        <h3>We check the mandate</h3>
+        <p>Is this seller allowed? Is the amount inside the per-call cap? Is there budget left today? Fail any of those and it stops here.</p>
+      </div>
+      <div class="step">
+        <div class="n">03</div>
+        <h3>Funds get held</h3>
+        <p>The money moves into a vault that needs two signatures to open. The seller can see it&rsquo;s there. Nobody can spend it yet.</p>
+      </div>
+      <div class="step you">
+        <div class="n">04</div>
+        <h3>You approve</h3>
+        <p>A card on your phone: who, what, how much, for which exact request. Approve or deny. Your key never touches the agent&rsquo;s machine.</p>
+      </div>
+      <div class="step paid">
+        <div class="n">05</div>
+        <h3>Seller paid</h3>
+        <p>USDC lands in the seller&rsquo;s wallet, the agent gets its data, and a signed receipt goes into the audit log.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="mandate">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">The mandate</p>
+      <h2>The spending cap is not a suggestion.</h2>
+      <p>Every other agent payment setup puts the limit in the agent&rsquo;s code — which is exactly the part an attacker, a bad prompt, or a confused model can reach. Ours lives on the ledger, where the agent has no write access.</p>
+    </div>
+    <div class="two">
+      <pre><span class="c">// what you set once, in the portal</span>
+mandate {
+  per_call_max: <span class="a">$2.00</span>
+  daily_budget: <span class="a">$20.00</span>
+  total_budget: <span class="a">$200.00</span>
+  allowed_sellers: [<span class="g">datafeed.example</span>, <span class="g">reports.io</span>]
+  approver: <span class="g">your phone</span>
+  expires: <span class="a">2026-12-31</span>
+}
+
+<span class="c">// what the agent can do about that</span>
+<span class="c">// nothing. it signs requests, not releases.</span></pre>
+      <ul class="pts">
+        <li><strong>Request-bound signatures</strong>The agent&rsquo;s signature commits to the exact method, URL and body it is buying. A signature can&rsquo;t be replayed against a different, more expensive call.</li>
+        <li><strong>Two keys, two parties</strong>The vault is a Stellar account that requires both the agent&rsquo;s key and yours. We demonstrated a release attempt without your signature being rejected by the ledger, and one signed by the wrong approver being rejected too.</li>
+        <li><strong>Denials cost nothing</strong>Deny and the money never leaves. It stays in your vault, and the denial is logged with the rest.</li>
+        <li><strong>Proof of delivery</strong>Optional escrow: the seller proves what they sent before the release timer lets the money go.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="sellers">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Two sides, one rail</p>
+      <h2>Who plugs in, and how much work it is.</h2>
+    </div>
+    <div class="aud">
+      <div>
+        <h3>You run agents</h3>
+        <p>One command, run by the agent itself. It creates its own key, registers a mandate with us, and hands you a link. You open the link and approve. Nothing to install on your machine.</p>
+        <ul>
+          <li>Set limits once, in a browser — no crypto knowledge needed</li>
+          <li>Approve from your phone, in the browser, on the web</li>
+          <li>Funds stay in a vault only you can release</li>
+          <li>Every purchase leaves a signed receipt you can hand to finance</li>
+        </ul>
+      </div>
+      <div>
+        <h3>You sell to agents</h3>
+        <p>If you already answer <code>402 Payment Required</code>, you change one line of config: point the payment check at our vault instead of verifying signatures yourself.</p>
+        <ul>
+          <li>Settled in USDC, on Stellar, for a fraction of a cent in chain fees</li>
+          <li>You see the funds held before you serve the response</li>
+          <li>0.25% seller fee, free while we onboard</li>
+          <li>No chargebacks, no card rails, no monthly minimums</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Why Stellar</p>
+      <h2>Micro-payments only work if the chain is nearly free.</h2>
+      <p>We tested this on three chains before choosing. A $0.10 API call has to survive the network fee, and dollars have to be real dollars — not a wrapped IOU on a bridge.</p>
+    </div>
+    <div class="facts">
+      <div class="fact"><div class="num">0.00001 XLM</div><div class="lbl">Stellar transaction fee. A cent buys ~100,000 payments.</div></div>
+      <div class="fact"><div class="num">~$343M</div><div class="lbl">Circle-issued USDC live on the Stellar ledger.</div></div>
+      <div class="fact"><div class="num">0.5&cent;</div><div class="lbl">Our fee per settled payment, capped at 1% of the amount.</div></div>
+      <div class="fact"><div class="num">2 of 2</div><div class="lbl">Signatures the vault requires: the agent&rsquo;s and yours.</div></div>
+    </div>
+    <p class="src">Chain fee and USDC circulation verified on public Stellar data, Oct 2026. We also tested XRPL: its native escrow refuses issued tokens, so approval-gated dollar payments aren&rsquo;t expressible there. That is why we chose Stellar.</p>
+  </div>
+</section>
+
+<section id="status">
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">Where we actually are</p>
+      <h2>We&rsquo;d rather tell you now than later.</h2>
+    </div>
+    <div class="status">
+      <div class="st">
+        <div class="tag t-done">Proven</div>
+        <p>The full loop runs: agent asks, funds held, human approves from a real wallet, money moves — and a denial stops it. Spending caps enforced. Approval-gated token escrow demonstrated on Stellar testnet. Code is public.</p>
+      </div>
+      <div class="st">
+        <div class="tag t-now">Building now</div>
+        <p>Stellar version of the approval desk on a public testnet, the one-command agent install, and the seller-side config. Early access is for people who want to try it before it&rsquo;s polished.</p>
+      </div>
+      <div class="st">
+        <div class="tag t-later">Before real money</div>
+        <p>A paid independent security audit, and a public mainnet launch. We will not take customer funds before the audit is done and published. If anyone tells you otherwise, they&rsquo;re not us.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="border-bottom:0">
+  <div class="wrap join">
+    <div>
+      <p class="eyebrow">Early access</p>
+      <h2>Tell us what your agent needs to buy.</h2>
+      <p class="lede" style="margin-top:12px">We&rsquo;re picking a small number of pilots — teams running agents that pay for data, and sellers who want agent traffic. Send one sentence about your case and we&rsquo;ll set you up.</p>
+    </div>
+    <div>
+      <a class="btn" href="mailto:founder@paydlux.com?subject=Early%20access%20to%20Paydlux&amp;body=My%20agent%20needs%20to%20buy%3A%20">Email us: founder@paydlux.com</a>
+      <p class="fine">Opens your mail app. One sentence about your use case is enough. No list, no tracking, no newsletter.</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap foot">
+    <span>&copy; 2026 Paydlux</span>
+    <a href="mailto:founder@paydlux.com">founder@paydlux.com</a>
+    <a href="https://github.com/Mesher589/agentvault">source</a>
+    <span class="sp">built on Stellar · settled in USDC</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var TOTAL=6.00, PER=2.00, left=TOTAL, n=0, busy=false;
+  var bal=document.getElementById('bal'), bar=document.getElementById('bar'), log=document.getElementById('log');
+  var ok=document.getElementById('ok'), no=document.getElementById('no');
+  function paint(){ bal.textContent='$'+left.toFixed(2); bar.style.width=Math.max(0,(left/TOTAL)*100)+'%'; }
+  function say(html){ log.innerHTML=html; }
+  function next(){ n++; return ('pay_000'+(7+n)); }
+  ok.addEventListener('click',function(){
+    if(busy) return; busy=true;
+    say('<b>signing with your key&hellip;</b>');
+    setTimeout(function(){
+      if(left < PER){
+        say('<span class="l-warn">blocked by the mandate, not by us.</span> $'+PER.toFixed(2)+' exceeds the $'+left.toFixed(2)+' left in today&rsquo;s budget. The agent cannot go past this — not by a bug, not by a hack.');
+        busy=false; return;
+      }
+      left-=PER; paint();
+      say('<span class="l-ok">released.</span> $'+PER.toFixed(2)+' USDC to datafeed.example. '+left.toFixed(2)+' left today. <b>'+next()+'</b> is next in the queue.');
+      if(left<PER) setTimeout(function(){ say('<span class="l-warn">next request waiting.</span> the agent has $'+left.toFixed(2)+' of mandate left and wants $'+PER.toFixed(2)+'. approve anyway?'); },900);
+      busy=false;
+    },520);
+  });
+  no.addEventListener('click',function(){
+    if(busy) return; busy=true;
+    say('<b>denying&hellip;</b>');
+    setTimeout(function(){
+      say('<span class="l-no">denied.</span> $'+PER.toFixed(2)+' never left the vault. The seller was notified. The denial is in the audit log.');
+      busy=false;
+    },420);
+  });
+  paint();
+})();
+</script>
+</body>
+</html>
