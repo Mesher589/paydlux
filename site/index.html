@@ -8,8 +8,10 @@
 <meta property="og:title" content="Paydlux — agent payments a human approves">
 <meta property="og:description" content="Spending mandates enforced on the Stellar ledger. Agents ask, humans approve, sellers get paid in USDC.">
 <meta property="og:type" content="website">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://paydlux.com/og-image.png">
+<meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:site" content="@paydlux">
+<meta name="twitter:image" content="https://paydlux.com/og-image.png">
 <meta name="twitter:title" content="Paydlux — agent payments a human approves">
 <meta name="twitter:description" content="Spending mandates enforced on the Stellar ledger. Agents ask, humans approve, sellers get paid in USDC.">
 <link rel="canonical" href="https://paydlux.com/">
@@ -63,7 +65,8 @@
     backdrop-filter:blur(9px);border-bottom:1px solid var(--line-soft);
   }
   .bar{display:flex;align-items:center;gap:26px;height:62px}
-  .mark{font-family:var(--serif);font-size:23px;letter-spacing:.01em}
+  .mark{font-family:var(--serif);font-size:23px;letter-spacing:.01em;display:flex;align-items:center;gap:9px}
+  .mark .glyph{flex:none;display:block}
   .mark b{color:var(--accent);font-weight:400}
   nav{margin-left:auto;display:flex;gap:24px;align-items:center}
   nav a{font-size:14.5px;color:var(--muted);text-decoration:none}
@@ -213,7 +216,7 @@
 
 <header>
   <div class="wrap bar">
-    <div class="mark">Pay<b>dlux</b></div>
+    <div class="mark"><svg class="glyph" viewBox="0 0 512 512" aria-hidden="true" width="26" height="26"><path d="M82.7 225.4 A176 176 0 0 1 429.3 225.4" fill="none" stroke="#5fbf8b" stroke-width="34" stroke-linecap="round"/><path d="M429.3 286.6 A176 176 0 0 1 82.7 286.6" fill="none" stroke="#e8b04b" stroke-width="34" stroke-linecap="round"/><path d="M170 262 L232 324 L352 204" fill="none" stroke="#e8b04b" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/></svg>Pay<b>dlux</b></div>
     <nav>
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#mandate">Mandates</a>
