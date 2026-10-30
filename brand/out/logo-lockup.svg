@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 200" role="img" aria-label="Paydlux">
+  <g transform="translate(20,20) scale(0.3125)">
+    <rect width="512" height="512" rx="112" fill="#0d0f0e"/><rect x="14" y="14" width="484" height="484" rx="100" fill="#0d0f0e"/><path d="M429.33 286.56 A176 176 0 0 1 82.67 286.56" fill="none" stroke="#e8b04b" stroke-width="34" stroke-linecap="round"/><path d="M82.67 225.44 A176 176 0 0 1 429.33 225.44" fill="none" stroke="#5fbf8b" stroke-width="34" stroke-linecap="round"/><path d="M170.00 262.00 L232.00 324.00 L352.00 204.00" fill="none" stroke="#e8b04b" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="230" y="128" font-family="Instrument Serif, Georgia, serif" font-size="86" letter-spacing="1" fill="#eceae4">Pay</text>
+  <text x="392" y="128" font-family="Instrument Serif, Georgia, serif" font-size="86" letter-spacing="1" fill="#e8b04b">dlux</text>
+  <text x="232" y="163" font-family="Archivo, system-ui, sans-serif" font-size="19" letter-spacing="5.5" fill="#9aa39d">AGENT PAYMENTS · STELLAR</text>
+</svg>
