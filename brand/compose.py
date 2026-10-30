@@ -35,11 +35,12 @@ def font(size, bold=False):
     return ImageFont.load_default()
 
 
-def split_ring_draw(d, cx, cy, r, w, a1=10, a2=170):
-    """Draw the two-arc ring directly (used for large formats)."""
+def split_ring_draw(d, cx, cy, r, w, a1=14, a2=166):
+    """Two arcs with two symmetric gaps = the two signatures the vault needs.
+    PIL angles are clockwise from 3 o'clock. Gaps: a2..a2+20 and a1-20..a1."""
     bbox = [cx-r, cy-r, cx+r, cy+r]
     d.arc(bbox, start=a1, end=a2, fill=GOLD, width=w)
-    d.arc(bbox, start=a2+20, end=a1+360, fill=GREEN, width=w)
+    d.arc(bbox, start=a2+28, end=a1+332, fill=GREEN, width=w)
 
 
 def check_draw(d, cx, cy, scale, w, color):
@@ -51,16 +52,18 @@ def check_draw(d, cx, cy, scale, w, color):
 
 
 def mark_on(size, scale=0.62, bg=INK, radius=None):
-    """Square mark canvas drawn from scratch so it stays crisp at any size."""
-    im = Image.new("RGBA", (size, size), (0,0,0,0))
+    """Square mark canvas drawn from scratch so it stays crisp at any size.
+    Proportions match the SVG: check half-extent = 0.55 x ring radius."""
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
-    r = radius if radius is not None else int(size*0.18)
-    d.rounded_rectangle([0,0,size-1,size-1], radius=r, fill=bg)
-    cx = cy = size/2
-    ring = size*scale/2
-    w = max(2, int(ring*0.19))
+    r = radius if radius is not None else int(size * 0.18)
+    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=r, fill=bg)
+    cx = cy = size / 2
+    ring = size * scale / 2
+    w = max(2, int(ring * 0.19))
     split_ring_draw(d, cx, cy, ring, w)
-    check_draw(d, cx, cy, scale/0.72, max(2, int(size*0.09)), GOLD)
+    s = 0.55 * ring / 96.0          # check spans +/-96 in the 512-space points
+    check_draw(d, cx, cy, s, max(2, int(size * 0.078)), GOLD)
     return im
 
 
@@ -99,6 +102,6 @@ d.text((74, 520), "Spending mandates enforced on the Stellar ledger  ·  paydlux
 o.save("deliverables/og-image-1200x630.png")
 
 print("deliverables:")
-for f in sorted(glob.glob("deliverables/*")):
+for f in sorted(glob.glob("deliverables/*.png")):
     im = Image.open(f)
     print(f"  {f:38s} {im.size[0]}x{im.size[1]}  {os.path.getsize(f)//1024} KB")

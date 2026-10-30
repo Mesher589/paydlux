@@ -32,10 +32,11 @@ def tile(inner=INK):
 
 
 def split_ring(r=176, w=34):
-    """Two arcs, two symmetric gaps: the two signatures the vault needs."""
-    return (f'<path d="{arc(r, 10, 170)}" fill="none" stroke="{GOLD}" '
+    """Two arcs, two symmetric 28deg gaps: the two signatures the vault needs.
+    28deg survives the round line-caps down to 24px."""
+    return (f'<path d="{arc(r, 14, 166)}" fill="none" stroke="{GOLD}" '
             f'stroke-width="{w}" stroke-linecap="round"/>'
-            f'<path d="{arc(r, 190, 350)}" fill="none" stroke="{GREEN}" '
+            f'<path d="{arc(r, 194, 346)}" fill="none" stroke="{GREEN}" '
             f'stroke-width="{w}" stroke-linecap="round"/>')
 
 
