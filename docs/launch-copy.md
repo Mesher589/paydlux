@@ -103,6 +103,42 @@ Body:
 | r/stellar, r/CryptoCurrency | owner | r/stellar is far friendlier than r/crypto |
 | Dev.to / long-form | owner | the README is already close to this |
 
+## X API setup — use-case text for the developer form
+
+Paste this into "Describe all of your use cases of X's data and API". Vague
+answers get rejected; this one names the account, the endpoints and the volume.
+
+> Single-company developer account for @paydlux, the account of Paydlux
+> (https://paydlux.com), a payments tool for AI agents. Two use cases, both on
+> our own account only.
+>
+> 1. Posting. We publish product updates, release notes and short demo clips of
+> our own software to @paydlux using POST /2/tweets and POST /2/media/upload.
+> Roughly 5-20 posts per month, written by us, about our own product. No
+> reposting of other accounts' content, no bulk or automated engagement, no
+> replies to accounts that did not contact us first.
+>
+> 2. Reading our own notifications. We use GET /2/users/me, GET
+> /2/users/by/username and GET /2/tweets search restricted to from:/to: @paydlux
+> so we can see who replied to or mentioned us and answer support questions by
+> hand. Low volume, tens of requests a day. We store nothing beyond the replies
+> we answer, we do not build a public dataset, we do not resell or republish
+> X content, and we do not use API data for surveillance, profiling or
+> political content.
+>
+> No automated following, liking or reposting. No DM automation. No account
+> creation. One app, one account, owned by us.
+
+## Cost after approval (checked 31 Oct 2026)
+
+X closed the free tier to new developers on 6 Feb 2026. New accounts land on
+pay-per-use: about $0.015 per post, $0.20 for a post containing a link, $0.005
+per post read. Like / repost / follow are Enterprise-only since Apr 2026, so
+engagement automation is off the table regardless.
+
+Our whole launch (a few posts with links plus reading replies) is under a
+dollar. Posting from the X website or phone app instead costs nothing.
+
 ## Claims that are NOT true yet — never post these
 
 - "audited" — no audit has happened
