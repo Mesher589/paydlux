@@ -10,9 +10,19 @@
 //   - a stolen phone cannot approve alone
 //   - the approval is a real ledger signature, not a database flag
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Keypair } from "stellar-sdk";
 import type { StellarVault } from "./vault.ts";
 import { portalPage } from "./portal.ts";
+
+/** A portal link is a capability: whoever holds it can approve. So it is long,
+ *  random, and compared without leaking timing. */
+export function newPortalKey() { return randomBytes(16).toString("base64url"); }
+
+function same(a: string, b: string) {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
 
 export type DeskRecord = {
   id: string;
@@ -35,6 +45,9 @@ export type DeskConfig = {
   principal?: string;
   approver?: string;
   port: number;
+  /** If set, the portal and its actions require this key in the URL.
+   *  Required before putting the desk on any public URL. */
+  portalKey?: string;
 };
 
 export class ApprovalDesk {
@@ -95,6 +108,14 @@ export class ApprovalDesk {
   listen(port = this.cfg.port) {
     const srv = createServer(async (req, res) => {
       const url = new URL(req.url ?? "/", "http://localhost");
+      // A public demo link must not be an open approval button. If a portalKey
+      // is configured, every route needs it, or the desk answers 403.
+      if (this.cfg.portalKey && !same(url.searchParams.get("k") ?? "", this.cfg.portalKey)) {
+        res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+        res.end("403 — this approval link was never issued or has been rotated.");
+        return;
+      }
+      const qs = url.search;
       const send = (code: number, obj: unknown) => {
         res.writeHead(code, { "content-type": "application/json" });
         res.end(JSON.stringify(obj));
@@ -102,7 +123,7 @@ export class ApprovalDesk {
       try {
         if (url.pathname === "/") {
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
-          res.end(portalPage(this.list(), this.cfg.vault.address, this.cfg.vault.network));
+          res.end(portalPage(this.list(), this.cfg.vault.address, this.cfg.vault.network, qs));
           return;
         }
         if (url.pathname === "/list") return send(200, this.list());

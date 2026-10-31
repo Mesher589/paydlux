@@ -6,7 +6,7 @@ the live Stellar **testnet**, not simulated.
 ## Run it
 
 ```bash
-npx tsx stellar/demo.ts        # 11 checks, prints pass/fail, exits
+npx tsx stellar/demo.ts        # 12 checks, prints pass/fail, exits
 npx tsx stellar/onboard.ts     # makes you a real vault + prints the agent key
 ```
 
@@ -16,6 +16,13 @@ run, so it is safe to run repeatedly.
 `npx tsx stellar/story.ts` is the story version: it sets up a vault, parks one
 real approval request, and stays up so a human can click Approve in a browser
 at `http://127.0.0.1:4022/`. That is what the demo clip was recorded from.
+
+`story.ts --public` additionally opens a free Cloudflare tunnel and prints one
+public link. The portal has no login, so the link *is* the credential: it
+carries a 22-character random key and every route without it answers 403,
+including `/approve/...`. Verified in `demo.ts` step 12 and over a real public
+URL (no key 403, wrong key 403, issued key 200, Approve button settled on-chain).
+The tunnel dies with the process; nothing stays exposed.
 
 ## The mechanism, in one paragraph
 

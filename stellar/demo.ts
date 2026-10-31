@@ -13,6 +13,7 @@ import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";
 import { PolicyEngine } from "./policy.ts";
+import { ApprovalDesk, newPortalKey } from "./desk.ts";
 
 const GATEWAY_PORT = 4021;
 const DESK_PORT = 4022;
@@ -118,6 +119,25 @@ const main = async () => {
   const html = await fetch(`http://127.0.0.1:${DESK_PORT}/`).then((r) => r.text());
   if (!html.includes("Paydlux") || !html.includes("Approve")) bad("portal did not render");
   ok(`portal served at http://127.0.0.1:${DESK_PORT}/ (${html.length} bytes, ${pending.length + 2} rows)`);
+
+  step("12. a public portal link is unguessable, not just obscure");
+  // The portal has no login, so the URL is the credential. If a portalKey is
+  // configured, every route without it must be refused — including approve.
+  const key = newPortalKey();
+  const guarded = new ApprovalDesk({
+    vault, payee: seller.publicKey(), port: DESK_PORT + 2, portalKey: key,
+  });
+  await guarded.listen(DESK_PORT + 2);
+  const base = `http://127.0.0.1:${DESK_PORT + 2}`;
+  for (const u of ["/", "/list", `/approve/pay_0001`]) {
+    const r = await fetch(base + u, { method: u.startsWith("/approve") ? "POST" : "GET" });
+    if (r.status !== 403) bad(`unguarded ${u} answered ${r.status}, wanted 403`);
+  }
+  const wrong = await fetch(base + "/?k=" + key.slice(0, -1) + "X");
+  if (wrong.status !== 403) bad("a near-miss key was accepted");
+  const right = await fetch(base + "/?k=" + key);
+  if (right.status !== 200) bad("the issued key was refused");
+  ok(`keyless and wrong-key requests got 403; the issued key (${key.length} chars) got 200`);
 
   console.log("\nALL CHECKS PASSED — Stellar-only flow works end to end on testnet.");
   console.log(`explorer: https://stellar.expert/explorer/testnet/account/${vault.address}`);
