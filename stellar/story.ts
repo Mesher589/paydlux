@@ -1,22 +1,30 @@
 // Story mode: sets up a vault + seller, parks one approval request, and stays
 // up so the human approval can be done in a real browser (for the demo clip).
 //
-//   npx tsx stellar/story.ts              local only:  http://127.0.0.1:4022/
-//   npx tsx stellar/story.ts --public     also opens a free Cloudflare tunnel
-//                                         and prints a single unguessable link
+//   npx tsx stellar/story.ts                    local only: http://127.0.0.1:4022/
+//   npx tsx stellar/story.ts --public           throwaway trycloudflare.com link
+//   npx tsx stellar/story.ts --tls              https://desk.paydlux.com (named tunnel)
+//   add --split to keep the approver key off this machine
 //
 // --public matters: the portal has no login, so the URL *is* the credential.
 // Without a key, anyone who finds the tunnel can approve a payment. With one,
 // the link is 22 random characters and a wrong guess gets a 403.
+//
+// --tls is the one to use for anything real. A trycloudflare.com hostname is
+// random and disposable: nothing tells the human they reached *your* desk, and
+// there is no HSTS to fall back on. desk.paydlux.com is a named Cloudflare
+// tunnel on the same free tier, so the browser can verify where it is going.
 import { spawn } from "node:child_process";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";
 import { newPortalKey } from "./desk.ts";
+import { PUBLIC_HOST, runTunnel, tunnelLive, tunnelReady } from "./tunnel.ts";
 
 const GATEWAY_PORT = 4021, DESK_PORT = 4022;
 const PUBLIC = process.argv.includes("--public");
+const TLS = process.argv.includes("--tls");
 const SPLIT = process.argv.includes("--split");
 const log = (...a: unknown[]) => console.log("•", ...a);
 
@@ -31,7 +39,15 @@ const main = async () => {
   await vault.deposit("50", issuer);
   log("vault", vault.address, "balance", await vault.balance());
 
-  const portalKey = PUBLIC ? newPortalKey() : undefined;
+  // Any path that puts the desk on a public URL needs the key. --tls is public
+  // by definition, so forgetting --public must not silently remove the gate.
+  // Any path that puts the desk on a public URL needs the key. --tls is public
+  // by definition, so forgetting --public must not silently remove the gate.
+  // --key lets a test drive the public desk with a key it already knows.
+  const keyAt = process.argv.indexOf("--key");
+  const portalKey = (PUBLIC || TLS)
+    ? (keyAt > -1 ? process.argv[keyAt + 1] : newPortalKey())
+    : undefined;
   const gw = new Gateway({
     vault, network: "testnet", payee: seller.publicKey(), deskPort: DESK_PORT,
     principal: principal.secret(),
@@ -41,6 +57,9 @@ const main = async () => {
     approver: SPLIT ? undefined : approver.secret(),
     split: SPLIT,
     portalKey,
+    // In --tls mode the desk only answers for the tunnel hostname, so a direct
+    // hit on the loopback port cannot drive it.
+    publicHost: TLS ? PUBLIC_HOST : undefined,
     routes: [{ uri: "/market/data", price: "4.50", mode: "approval", holdSeconds: 3600 }],
   });
   gw.agentKeys = [agent.publicKey()];
@@ -52,15 +71,36 @@ const main = async () => {
   log("agent parked", ask.handle, "— waiting for a human");
   log("seller balance before:", await vault.balance(seller.publicKey()));
 
-  console.log("\nPORTAL  http://127.0.0.1:" + DESK_PORT + "/" + (portalKey ? `?k=${portalKey}` : ""));
+  // In --tls mode the desk pins its Host header, so the loopback URL is refused
+  // on purpose: the only way in is the tunnel. Print the link the human will
+  // actually use, not one that 403s.
+  const host = TLS ? `https://${PUBLIC_HOST}` : `http://127.0.0.1:${DESK_PORT}`;
+  console.log("\nPORTAL  " + host + "/" + (portalKey ? `?k=${portalKey}` : ""));
   if (SPLIT) {
-    console.log("\nAPPROVER APP  http://127.0.0.1:" + DESK_PORT + "/phone/" +
+    console.log("\nAPPROVER APP  " + host + "/phone/" +
       (portalKey ? `?k=${portalKey}` : ""));
     console.log("  approver seed for that device ONLY (this process never sees it):");
     console.log("  " + approver.secret());
     console.log("  keep it off this machine. Re-run without --split to skip the phone.");
   }
-  if (PUBLIC) tunnel(portalKey!);
+  if (TLS) {
+    if (!tunnelReady()) {
+      console.log("\n--tls needs a named tunnel on this machine. One-time setup:");
+      console.log("  cloudflared tunnel login");
+      console.log("  cloudflared tunnel create paydlux-desk");
+      console.log("  cloudflared tunnel route dns paydlux-desk " + PUBLIC_HOST);
+      console.log("  and ~/.cloudflared/config.yml pointing at 127.0.0.1:" + DESK_PORT);
+      process.exit(1);
+    }
+    runTunnel();
+    log("opening https://" + PUBLIC_HOST + " ...");
+    if (!(await tunnelLive())) {
+      console.log("the tunnel did not answer on https://" + PUBLIC_HOST +
+        ". Check ~/.cloudflared/config.yml and that the DNS route exists.");
+      process.exit(1);
+    }
+    log("TLS verified on https://" + PUBLIC_HOST);
+  } else if (PUBLIC) tunnel(portalKey!);
   console.log("\nSTORY READY — click Approve in the browser, then ctrl-c to stop.");
 };
 

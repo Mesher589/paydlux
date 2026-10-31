@@ -100,6 +100,18 @@ function readBody(req: IncomingMessage) {
   });
 }
 
+/** Read one cookie out of the request header. No dependency for this. */
+function cookieOf(req: IncomingMessage, name: string): string | null {
+  const raw = req.headers.cookie;
+  if (!raw) return null;
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq < 0) continue;
+    if (part.slice(0, eq).trim() === name) return decodeURIComponent(part.slice(eq + 1).trim());
+  }
+  return null;
+}
+
 function same(a: string, b: string) {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
@@ -141,6 +153,15 @@ export type DeskConfig = {
   /** If set, the portal and its actions require this key in the URL.
    *  Required before putting the desk on any public URL. */
   portalKey?: string;
+  /**
+   * The hostname this desk is served on, e.g. "desk.paydlux.com". When set, the
+   * desk answers ONLY requests for that Host. A named Cloudflare tunnel gives
+   * real TLS on your own domain, but the local port it forwards to is still
+   * plain HTTP: if anything on this machine (or network) reached 127.0.0.1:4022
+   * directly it would bypass TLS and the HSTS/cookie protections the domain
+   * gives you. Pinning the Host means the only way in is through the tunnel.
+   */
+  publicHost?: string;
 };
 
 export class ApprovalDesk {
@@ -277,15 +298,69 @@ export class ApprovalDesk {
   api(handler: (req: IncomingMessage, res: ServerResponse) => void) { return handler; }
 
   listen(port = this.cfg.port) {
+    // A desk reachable from outside this machine must be gated. This is a
+    // startup refusal rather than a runtime one because the dangerous case is
+    // forgetting a flag: a public desk with no portal key is an open approval
+    // button, and it would otherwise start up looking completely healthy.
+    if (this.cfg.publicHost && !this.cfg.portalKey) {
+      throw new Error(
+        "a desk served on " + this.cfg.publicHost + " needs a portalKey; " +
+        "refusing to start an ungated approval desk");
+    }
     const srv = createServer(async (req, res) => {
       // (server handle kept below so close() can stop it)
       const url = new URL(req.url ?? "/", "http://localhost");
+      // Order matters. The Host pin runs first so a request that did not come
+      // through the tunnel is refused before the desk reveals anything about
+      // itself, including whether a portal key looks correct.
+      if (this.cfg.publicHost) {
+        const want = this.cfg.publicHost.toLowerCase();
+        const got = String(req.headers.host ?? "").toLowerCase().replace(/:\d+$/, "");
+        if (got !== want) {
+          res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
+          res.end("403 — this desk only answers on " + want + ".");
+          return;
+        }
+        // Cloudflare terminates TLS and forwards both http and https to us, so
+        // http://desk.paydlux.com answers too unless we send it away. A human
+        // approving a payment over plain HTTP is handing the portal key and the
+        // transaction to anyone on the path, so plain HTTP gets a redirect and
+        // nothing else. x-forwarded-proto is set by Cloudflare, not the client.
+        if (String(req.headers["x-forwarded-proto"] ?? "").split(",")[0].trim() === "http") {
+          res.writeHead(301, { location: "https://" + want + (req.url ?? "/") });
+          res.end();
+          return;
+        }
+        // Once HTTPS is established, tell the browser to never try plain HTTP
+        // again for this host.
+        res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
+      }
+      // Liveness probe, before the portal-key gate: it proves the desk and its
+      // TLS path are up without revealing anything. No data, safe to poll.
+      if (url.pathname === "/healthz") {
+        res.writeHead(200, { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" });
+        res.end("ok");
+        return;
+      }
       // A public demo link must not be an open approval button. If a portalKey
       // is configured, every route needs it, or the desk answers 403.
-      if (this.cfg.portalKey && !same(url.searchParams.get("k") ?? "", this.cfg.portalKey)) {
+      //
+      // The key may arrive in the URL (the link the human opened) or in a
+      // cookie the desk set when that link was first validated. The cookie is
+      // what makes the approver app work: its <script src="xdr.js"> cannot
+      // inherit ?k= from the page URL, so without a cookie the app 403s on its
+      // own code and shows a blank form. HttpOnly + SameSite=Strict + Secure
+      // keeps it out of the DOM and off any cross-site request.
+      const presented = url.searchParams.get("k") ?? cookieOf(req, "pd_portal");
+      if (this.cfg.portalKey && !same(presented ?? "", this.cfg.portalKey)) {
         res.writeHead(403, { "content-type": "text/plain; charset=utf-8" });
         res.end("403 — this approval link was never issued or has been rotated.");
         return;
+      }
+      if (this.cfg.portalKey && url.searchParams.get("k") !== null) {
+        res.setHeader("set-cookie",
+          `pd_portal=${this.cfg.portalKey}; Path=/; HttpOnly; SameSite=Strict; ` +
+          `Secure; Max-Age=${12 * 3600}`);
       }
       const qs = url.search;
       const send = (code: number, obj: unknown) => {
@@ -375,7 +450,10 @@ export class ApprovalDesk {
       }
     });
     this.server = srv;
-    return new Promise<void>((r) => srv.listen(port, () => r()));
+    // Loopback only. The public path is the Cloudflare tunnel, which connects
+    // back to 127.0.0.1; binding to 0.0.0.0 would expose a plain-HTTP desk to
+    // the LAN and defeat both the TLS and the Host pin above.
+    return new Promise<void>((r) => srv.listen(port, "127.0.0.1", () => r()));
   }
 
   /** Stop serving. Without this the process never exits. */

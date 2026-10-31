@@ -29,6 +29,8 @@
     "demo:stellar": "tsx stellar/demo.ts",
     "setup:stellar": "tsx stellar/onboard.ts",
     "story:stellar": "tsx stellar/story.ts",
+    "story:tls": "tsx stellar/story.ts --tls --split",
+    "test:tls": "tsx stellar/tls-check.ts",
     "test": "cd contracts && forge test",
     "test:stellar": "tsx stellar/demo.ts",
     "test:phone": "tsx stellar/phone-check.ts && tsx stellar/desk-split-check.ts && tsx stellar/e2e-phone.ts && tsx phone-app/xdr-check.ts && tsx phone-app/app-check.ts && tsx phone-app/desk-app-check.ts",

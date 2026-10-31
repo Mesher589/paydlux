@@ -44,8 +44,34 @@ stellar/onboard.ts   keys → funded vault → printed agent key
 ```bash
 npm i
 npx tsx stellar/demo.ts                    # 17 checks, live testnet
-npx tsx stellar/story.ts --public --split  # unguessable link; approve on your phone
+npx tsx stellar/story.ts --tls --split     # https://desk.paydlux.com; approve on your phone
 ```
+
+`--tls` is the one to use for anything real. It runs a named Cloudflare tunnel
+so the desk is served over `https://desk.paydlux.com` with a real certificate,
+instead of a random `trycloudflare.com` hostname (`--public`) that nothing tells
+the human is *your* desk. Setup is one-time and free:
+
+```bash
+cloudflared tunnel login
+cloudflared tunnel create paydlux-desk
+cloudflared tunnel route dns paydlux-desk desk.paydlux.com
+```
+
+Then `~/.cloudflared/config.yml` points the hostname at `http://127.0.0.1:4022`.
+The tunnel's credentials file stays in `~/.cloudflared/` and must never be
+committed: whoever holds it can serve your hostname.
+
+What the desk enforces once it is public (`npx tsx stellar/tls-check.ts`, 19 checks):
+
+- plain `http://` is 301'd to `https://` and never served, with HSTS set
+- the desk listens on `127.0.0.1` only, and refuses any `Host` that is not
+  `desk.paydlux.com` — so the local port cannot be driven directly to skip TLS
+- a desk configured with a public hostname **refuses to start** without a portal
+  key, rather than coming up as an open approval button
+- the portal key also rides in an `HttpOnly; SameSite=Strict; Secure` cookie, so
+  the approver app can load its own scripts (a `<script src>` cannot inherit
+  `?k=` from the page URL) without the key ever appearing in the DOM
 
 No wallet, no faucet, no config.
 
