@@ -36,6 +36,14 @@ export type GatewayConfig = {
   /** human keys. In production these live on the phone, never here. */
   principal?: string;
   approver?: string;
+  /**
+   * Split mode: the desk gets the principal key (the seller's own half) but NOT
+   * the approver key, so this process cannot approve anything. Approval happens
+   * on a second device through the approver app. Pass `approver: undefined`
+   * together with this; the gateway still settles, using the signature the
+   * phone sends back.
+   */
+  split?: boolean;
   deskPort?: number;
   /** gate the approval portal behind a single unguessable link */
   portalKey?: string;
@@ -68,6 +76,7 @@ export class Gateway {
       approver: cfg.approver,
       port: cfg.deskPort ?? 4022,
       portalKey: cfg.portalKey,
+      split: cfg.split,
     });
   }
 

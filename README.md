@@ -33,7 +33,8 @@ stellar/agent.ts     the buyer side — one class, one method call
 stellar/desk.ts      approval queue: a human decides, in the clear
 stellar/portal.ts    the page that human looks at
 stellar/policy.ts    daily budget / seller allowlist (the part a ledger can't count)
-stellar/demo.ts      12 checks against the live testnet, one command
+stellar/demo.ts      17 checks against the live testnet, one command
+phone-app/           the approver app a human opens on their own device
 stellar/probe-*.ts   the experiments that settled how the ledger behaves
 stellar/onboard.ts   keys → funded vault → printed agent key
 ```
@@ -42,8 +43,8 @@ stellar/onboard.ts   keys → funded vault → printed agent key
 
 ```bash
 npm i
-npx tsx stellar/demo.ts             # 12 checks, live testnet
-npx tsx stellar/story.ts --public   # one unguessable link; approve from your phone
+npx tsx stellar/demo.ts                    # 17 checks, live testnet
+npx tsx stellar/story.ts --public --split  # unguessable link; approve on your phone
 ```
 
 No wallet, no faucet, no config.
@@ -54,17 +55,28 @@ The vault needs two signatures. If both keys sit in one process, that is really
 one key. So the approval half is split off:
 
 ```bash
-npx tsx stellar/phone-check.ts      # 17 checks: seller alone cannot pay; phone alone cannot pay
-npx tsx stellar/e2e-phone.ts        # desk with no approver key still settles
+npx tsx stellar/phone-check.ts       # 17 checks: seller alone cannot pay; phone alone cannot pay
+npx tsx stellar/e2e-phone.ts         # desk with no approver key still settles
+npx tsx phone-app/xdr-check.ts       # 32 checks: the phone's own decoder is byte-exact with the SDK
+npx tsx phone-app/desk-app-check.ts  # 28 checks: the real app over real HTTP, end to end
 ```
 
-The seller builds the payment and signs it with their own half. The human's
-device (`tools/phone-sign.ts`) decodes it, shows a person the amount and payee,
-and signs offline. The approver seed never travels to the seller's machine, and
-the signature is over the transaction hash — change the amount or the payee and
-it stops counting.
+The seller builds the payment and signs it with their own half. The human opens
+one link — `/phone/?id=...` — and the approver app in `phone-app/` shows them the
+amount, the token, the payee and the deadline, then signs on the device.
 
-No wallet, no faucet, no config.
+The app is three static files with no dependencies and no build step. It carries
+its own Stellar transaction decoder (`phone-app/xdr.js`) rather than the SDK, and
+refuses any transaction shape it does not fully understand: path payments,
+account merges, signer changes and multi-operation transactions are rejected
+outright rather than guessed at. The key is imported into WebCrypto as
+**non-extractable** and only the `CryptoKey` object itself is persisted, so the
+seed is never in localStorage, IndexedDB, or a file. The page is served with
+`connect-src 'self'`, so an injected script cannot phone the key home.
+
+The approver seed never travels to the seller's machine, and the signature is
+over the transaction hash — change the amount or the payee and it stops counting.
+`tools/phone-sign.ts` is the same flow for a terminal instead of a browser.
 
 Use it as a package instead of cloning:
 
