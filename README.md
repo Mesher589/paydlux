@@ -1,11 +1,11 @@
-# AgentVault — spend-limited payments for AI agents
+# Paydlux — spend-limited payments for AI agents
 
 AI agents are starting to buy things (APIs, data, compute) over HTTP with
 stablecoin payments ([x402](https://x402.org)). Today an agent gets a raw
 crypto wallet: **no spending cap, no human approval, no refund path** — and
 real money has already been drained this way.
 
-AgentVault puts the guardrails **on-chain**:
+Paydlux puts the guardrails **on-chain**:
 
 - **Mandates** — a human registers a spending rule set (max per call, per day,
   total, payee allowlist, expiry). The agent's key can *never* exceed it, even

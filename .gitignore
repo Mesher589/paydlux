@@ -5,3 +5,6 @@ contracts/broadcast/
 *.log
 .env
 .DS_Store
+__pycache__/
+brand/
+site/
