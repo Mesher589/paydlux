@@ -9,7 +9,7 @@
 // Without a key, anyone who finds the tunnel can approve a payment. With one,
 // the link is 22 random characters and a wrong guess gets a 403.
 import { spawn } from "node:child_process";
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";

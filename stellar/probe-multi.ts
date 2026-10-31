@@ -1,6 +1,6 @@
 // Can two mandates be live at once, and in what order must they run?
 // A pre-auth transaction consumes a sequence number, so this is the real limit.
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 
 const log = (...a: unknown[]) => console.log("•", ...a);

@@ -1,5 +1,5 @@
 // Smoke test for StellarVault: create, fund, deposit, mandate, execute, revoke.
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 
 const log = (...a: unknown[]) => console.log("•", ...a);

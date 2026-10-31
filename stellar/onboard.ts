@@ -9,7 +9,7 @@
 import { createInterface } from "node:readline/promises";
 import { mkdirSync, existsSync, writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 
 const FILE = resolve(process.cwd(), "paydlux-vault.json");

@@ -11,7 +11,7 @@
 //   - the approval is a real ledger signature, not a database flag
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import type { StellarVault } from "./vault.ts";
 import { portalPage } from "./portal.ts";
 

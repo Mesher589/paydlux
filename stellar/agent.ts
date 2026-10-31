@@ -5,7 +5,7 @@
 //
 // The agent holds one key of two. It can ask, and it can execute a mandate a
 // human already signed. It cannot move money on its own — the ledger refuses.
-import { Horizon, Keypair, Transaction } from "stellar-sdk";
+import { Horizon, Keypair, Transaction } from "@stellar/stellar-sdk";
 import { passphrase, type Mandate } from "./vault.ts";
 
 const PAY_HEADER = "x-payment";

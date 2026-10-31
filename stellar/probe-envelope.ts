@@ -13,7 +13,7 @@
 // If this works, the cap is a property of the ledger, not of our software.
 import {
   Keypair, Networks, Horizon, Asset, TransactionBuilder, Operation, Account,
-} from "stellar-sdk";
+} from "@stellar/stellar-sdk";
 
 const HORIZON = new Horizon.Server("https://horizon-testnet.stellar.org");
 const TOKEN = "AGPAY";
