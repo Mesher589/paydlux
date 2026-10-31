@@ -37,6 +37,8 @@ export type GatewayConfig = {
   principal?: string;
   approver?: string;
   deskPort?: number;
+  /** gate the approval portal behind a single unguessable link */
+  portalKey?: string;
 };
 
 export type PaymentProof = {
@@ -65,6 +67,7 @@ export class Gateway {
       principal: cfg.principal,
       approver: cfg.approver,
       port: cfg.deskPort ?? 4022,
+      portalKey: cfg.portalKey,
     });
   }
 

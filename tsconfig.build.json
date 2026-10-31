@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "esnext",
+    "outDir": "dist",
+    "rootDir": "stellar",
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true
+  },
+  "include": [
+    "stellar/index.ts",
+    "stellar/vault.ts",
+    "stellar/gateway.ts",
+    "stellar/agent.ts",
+    "stellar/desk.ts",
+    "stellar/portal.ts",
+    "stellar/policy.ts"
+  ]
+}

@@ -5,7 +5,7 @@
 //
 // The agent holds one key of two. It can ask, and it can execute a mandate a
 // human already signed. It cannot move money on its own — the ledger refuses.
-import { Keypair, Transaction } from "stellar-sdk";
+import { Horizon, Keypair, Transaction } from "stellar-sdk";
 import { passphrase, type Mandate } from "./vault.ts";
 
 const PAY_HEADER = "x-payment";
@@ -101,10 +101,9 @@ export class PaydluxAgent {
    * Sign and submit a mandate envelope directly to Horizon. Used when the
    * gateway wants the payment settled before it serves anything.
    */
-  async submitEnvelope(mandate: Mandate) {
+  async submitEnvelope(mandate: Mandate): Promise<Awaited<ReturnType<Horizon.Server["submitTransaction"]>>> {
     const tx = new Transaction(mandate.envelope, passphrase(this.cfg.network!));
     tx.sign(this.key);
-    const { Horizon } = await import("stellar-sdk");
     const h = new Horizon.Server(this.cfg.network === "public"
       ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org");
     return h.submitTransaction(tx);

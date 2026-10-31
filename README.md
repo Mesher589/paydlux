@@ -33,7 +33,7 @@ stellar/agent.ts     the buyer side — one class, one method call
 stellar/desk.ts      approval queue: a human decides, in the clear
 stellar/portal.ts    the page that human looks at
 stellar/policy.ts    daily budget / seller allowlist (the part a ledger can't count)
-stellar/demo.ts      11 checks against the live testnet, one command
+stellar/demo.ts      12 checks against the live testnet, one command
 stellar/probe-*.ts   the experiments that settled how the ledger behaves
 stellar/onboard.ts   keys → funded vault → printed agent key
 ```
@@ -42,10 +42,21 @@ stellar/onboard.ts   keys → funded vault → printed agent key
 
 ```bash
 npm i
-npx tsx stellar/demo.ts
+npx tsx stellar/demo.ts             # 12 checks, live testnet
+npx tsx stellar/story.ts --public   # one unguessable link; approve from your phone
 ```
 
-No wallet, no faucet, no config. It prints what it proves:
+No wallet, no faucet, no config. The SDK also builds as an npm package
+(`npm run build` → `dist/`, published as `@paydlux/agent`):
+
+```ts
+import { StellarVault, Gateway, PaydluxAgent } from "@paydlux/agent";
+```
+
+`story.ts --public` matters for demos: the portal has no login, so the printed
+link carries a 22-character key and every request without it gets a 403.
+
+It prints what it proves:
 
 ```
 — 4. human pre-authorises a mandate; agent executes it

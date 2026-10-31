@@ -7,7 +7,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { DeskRecord } from "./desk.ts";
 
-export function portalPage(records: DeskRecord[], vault: string, network: string) {
+export function portalPage(records: DeskRecord[], vault: string, network: string, qs = "") {
   const rows = records.length
     ? records.map(render).join("\n")
     : `<tr><td colspan="5" class="empty">nothing waiting</td></tr>`;
@@ -41,8 +41,9 @@ export function portalPage(records: DeskRecord[], vault: string, network: string
 <tbody>${rows}</tbody></table>
 <div class="foot">Approving signs a Stellar transaction with your key. The vault needs two signatures, so this device alone cannot release funds.</div>
 <script>
- async function act(kind,id){await fetch('/'+kind+'/'+id,{method:'POST'});load()}
- async function load(){const r=await fetch('/list');const d=await r.json();
+ const Q=${JSON.stringify(qs)};
+ async function act(kind,id){await fetch('/'+kind+'/'+id+Q,{method:'POST'});load()}
+ async function load(){const r=await fetch('/list'+Q);const d=await r.json();
    document.querySelector('tbody').innerHTML=d.map(row).join('')||'<tr><td colspan="5" class="empty">nothing waiting</td></tr>';
    document.getElementById('t').textContent=new Date().toLocaleTimeString()}
  function row(x){const st='<span class="st '+x.status+'">'+x.status+'</span>'+(x.tx?'<div class="tx">'+x.tx+'</div>':'')+(x.reason?'<div class="tx">'+x.reason+'</div>':'');

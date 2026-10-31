@@ -1,28 +1,66 @@
 {
-  "name": "project1",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "@paydlux/agent",
+  "version": "0.1.0",
+  "description": "Payments for AI agents that a human approves. Spending mandates enforced on the Stellar ledger: 2-of-2 vault, pre-authorised transaction envelopes, HTTP 402, USDC.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
     "demo": "node sdk/demo.ts",
     "demo:stellar": "tsx stellar/demo.ts",
     "setup:stellar": "tsx stellar/onboard.ts",
     "story:stellar": "tsx stellar/story.ts",
     "test": "cd contracts && forge test",
-    "test:stellar": "tsx stellar/demo.ts"
+    "test:stellar": "tsx stellar/demo.ts",
+    "typecheck": "tsc --noEmit"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
+  "keywords": [
+    "x402",
+    "http-402",
+    "stellar",
+    "usdc",
+    "ai-agents",
+    "agent-payments",
+    "escrow",
+    "payments"
+  ],
+  "author": "Paydlux",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Mesher589/paydlux.git"
+  },
+  "homepage": "https://paydlux.com",
+  "bugs": {
+    "url": "https://github.com/Mesher589/paydlux/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
-    "stellar-sdk": "^13.3.0",
-    "viem": "^2.57.13",
-    "xrpl": "^5.3.0"
+    "stellar-sdk": "^13.3.0"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "viem": "^2.57.13",
+    "xrpl": "^5.3.0"
   }
 }

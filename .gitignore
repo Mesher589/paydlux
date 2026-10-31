@@ -11,3 +11,4 @@ site/
 # local vault keys — never commit these
 paydlux-vault.json
 *.vault.json
+dist/
