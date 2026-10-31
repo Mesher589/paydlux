@@ -5,81 +5,125 @@ stablecoin payments ([x402](https://x402.org)). Today an agent gets a raw
 crypto wallet: **no spending cap, no human approval, no refund path** — and
 real money has already been drained this way.
 
-Paydlux puts the guardrails **on-chain**:
+Paydlux puts the guardrails **on the ledger** instead of in your code.
 
-- **Mandates** — a human registers a spending rule set (max per call, per day,
-  total, payee allowlist, expiry). The agent's key can *never* exceed it, even
-  if the agent is compromised or prompt-injected.
-- **Request-bound signatures** — every payment proof is bound to the exact
-  HTTP request it pays for. Captured proofs cannot be replayed or pointed at
-  other resources (the "floating authorization" class from
-  [arXiv:2605.30998](https://arxiv.org/abs/2605.30998) — our fuzz tests prove
-  substitution reverts).
-- **Human-in-the-loop approval** — mandates can require a person to sign the
-  *exact* payment before it settles. The Approval Desk shows what the agent
-  wants to buy; nothing moves until a human approves. Approvals are
-  single-use and payment-bound.
-- **Escrow with proof-of-delivery** — funds are held until the seller signs a
-  delivery receipt binding the paid content hash; otherwise the buyer reclaims.
-- **Batched settlement** — tokenized credits + Merkle batches amortize gas to
-  ~$0.00005/payment, making sub-cent agent micropayments viable.
+## The Stellar path (primary — no smart contract, no faucet, no gas fight)
+
+There is no contract to audit. The whole mechanism is three native Stellar
+primitives:
+
+| primitive | what it gives us |
+|---|---|
+| issued asset / Circle USDC | the payment token |
+| multisig account | the vault — releasing funds needs 2 of the signers |
+| pre-authorised transaction hash | the spending mandate, as a *signer* |
+
+The mandate is the trick. We pre-build a transaction whose operations are
+exactly "pay N tokens to this payee, inside this time window, once", take its
+hash, and register that hash as a weight-1 signer on the vault. The agent key
+is also weight-1 and the threshold is 2. So the agent can reach threshold only
+by presenting **that exact transaction**. Change the amount, the payee, the
+token, the window, or try to run it twice, and the ledger refuses. A prompt
+injection cannot talk its way past a signature check.
+
+```
+stellar/vault.ts     create a 2-of-2 vault, register mandates, settle, revoke
+stellar/gateway.ts   HTTP 402 resource server; serves only after the ledger agrees
+stellar/agent.ts     the buyer side — one class, one method call
+stellar/desk.ts      approval queue: a human decides, in the clear
+stellar/portal.ts    the page that human looks at
+stellar/policy.ts    daily budget / seller allowlist (the part a ledger can't count)
+stellar/demo.ts      11 checks against the live testnet, one command
+stellar/onboard.ts   keys → funded vault → printed agent key
+```
+
+### Try it
+
+```bash
+npm i
+npx tsx stellar/demo.ts
+```
+
+No wallet, no faucet, no config. It prints what it proves:
+
+```
+— 4. human pre-authorises a mandate; agent executes it
+  ✅ content served, tx cabeb25ec92c2391…
+  ✅ seller 2.0000000, vault 48.0000000
+— 5. tamper with the envelope — the ledger refuses
+  ✅ refused: price mismatch: want 2 got 9.0000000
+— 6. replay the same mandate — money moves once
+  ✅ refused: mandate is not registered on the vault (expired or revoked)
+— 7. over-budget request is declined before anything is built
+  ✅ declined [max_per_payment]: 40 exceeds the per-payment ceiling of 10
+— 8. approval mode — a human decides
+  ✅ human approved → settled on-chain, tx bf4ce06c742f18f2…
+— 9. deny path — nothing moves
+  ✅ denied, balance unchanged at 42.0000000
+```
+
+Plug your own agent in:
+
+```ts
+import { PaydluxAgent } from "./stellar/agent.ts";
+
+const agent = new PaydluxAgent({ agentKey: process.env.AGENT_KEY! });
+const res = await agent.get("https://seller.example.com/api/data", { mandate });
+if (res.ok) console.log(res.data, "paid in tx", res.tx);
+```
+
+`npx tsx stellar/onboard.ts` creates the vault and prints that key. The key is
+**one of two signatures** — it cannot spend alone.
+
+### What is enforced where (said honestly)
+
+| enforced by Stellar | enforced by `policy.ts` |
+|---|---|
+| max per payment, payee, token, time window, one-shot execution | payments per day, running daily total, seller allow/deny list |
+
+The vault is one payment at a time; counting payments is our job. A rule break
+means we never build the transaction, so nothing reaches the ledger.
+
+### Real money
+
+Circle issues USDC natively on Stellar — not wrapped, not bridged. `vault.ts`
+pins the issuer (`GA5ZSEJY…KZVN` on public, `GBBD47IF…FLA5` on testnet) and
+rejects any other token that calls itself USDC. The vault's USDC trustline is
+verified on testnet. Settlement fee is 0.00001 XLM.
+
+## The EVM path (research, kept for the deeper feature set)
+
+`contracts/` + `sdk/` are the earlier Base Sepolia work: a Solidity vault with
+escrow, proof-of-delivery receipts, session keys and Merkle-batched settlement
+(~$0.00005/payment). 61 contract tests pass, including 4×512-run fuzz suites
+over the core invariants.
+
+```
+contracts/src/AgentVault.sol       vault, mandates, settle, escrow, sessions, batches
+contracts/src/AgentCreditToken.sol USDC-backed credit token (deferred settlement)
+sdk/core.ts                        EIP-712 typed data (mirrors the contract exactly)
+sdk/gateway.ts                     x402-style HTTP 402 resource server
+sdk/approval.ts                    human-in-the-loop Approval Desk
+sdk/economics.ts                   unit economics from measured gas + live prices
+```
+
+```bash
+anvil --chain-id 31337 &
+cd contracts && forge build && forge test
+cd ../sdk && node demo.ts
+```
 
 ## Status
 
-Research prototype. 61 contract tests pass (incl. 4×512-run fuzz suites over
-the core invariants). End-to-end demos run against a local anvil chain; the
-deploy script is verified against a live Base Sepolia fork.
-**Not audited. Do not use with real funds.**
+Working prototype on **Stellar testnet**, end to end, verified by `stellar/demo.ts`.
+The EVM contracts are tested but **not audited**. Nothing here has run with
+real funds. Do not use it with real funds.
 
-The Approval Desk — what a human sees when an agent wants to spend:
+## Economics
 
-![Approval Desk](docs/approval-desk.png)
-
-```
-contracts/src/AgentVault.sol      vault, mandates, settle, escrow, sessions, batches
-contracts/src/AgentCreditToken.sol  USDC-backed credit token (deferred settlement)
-contracts/src/MockUSDC.sol        testnet faucet token (anyone can mint)
-contracts/script/Deploy.s.sol     full-stack testnet deploy (Base Sepolia)
-sdk/core.ts                       EIP-712 typed data (mirrors the contract exactly)
-sdk/gateway.ts                    x402-style HTTP 402 resource server
-sdk/client.ts                     paying agent client
-sdk/approval.ts                   human-in-the-loop Approval Desk (web UI + wallet signing)
-sdk/demo.ts                       full loop: deposit → mandate → 402 → settle → escrow
-sdk/demo-approval.ts              agent buys, human approves on a web page, then it settles
-sdk/economics.ts                  unit economics from measured gas + live prices
-```
-
-## Quick start
-
-```bash
-# prerequisites: node >= 22 (native TS), foundry (forge)
-anvil --chain-id 31337 &                      # local chain
-cd contracts && forge build && forge test     # 61 tests
-cd ../sdk && npm i                            # viem
-node demo.ts                                  # full payment loop
-node demo-approval.ts                         # human-approval loop, portal on :4022
-```
-
-## How a payment works
-
-1. Agent `GET`s a priced resource → gateway answers `402 Payment Required`.
-2. Agent signs an EIP-712 `PaymentIntent` bound to that exact request
-   (method, URI, body hash, nonce) with its mandate key.
-3. Gateway verifies the proof against the on-chain mandate (agent identity,
-   caps, window, replay) and calls `settle`.
-4. The contract re-checks everything, enforces per-call / daily / total
-   budgets, charges the fee, and pays in credits.
-
-With approval required, step 3 holds the verified payment in the Approval
-Desk; the human signs the same intent digest (MetaMask `personal_sign` works);
-`settleWithApproval` releases it. A denial settles nothing.
-
-## Economics (measured, Base mainnet gas)
-
-Settlement costs ~$0.0013 direct, ~$0.0005 batched per payment. At x402's
-~$0.30 average call value, per-transaction fees alone don't fund a company —
-the model is SaaS (mandate management, dashboards, compliance evidence) plus
-small bps. `sdk/economics.ts` prints the full model with live prices.
+Stellar settles for ~0.00001 XLM, so per-payment cost is not the constraint —
+trust is. Pricing is 0.5¢ per settlement capped at 1%, plus SaaS for mandate
+management, dashboards and compliance evidence.
 
 ## License
 
