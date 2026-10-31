@@ -12,3 +12,10 @@ export type { DeskConfig, DeskRecord } from "./desk.ts";
 export { portalPage } from "./portal.ts";
 export { PolicyEngine, DEFAULT_POLICY } from "./policy.ts";
 export type { Policy, SpendEvent, Verdict } from "./policy.ts";
+// Split signing: the human's key lives on a phone, not in the seller's process.
+export {
+  createApprovalChallenge, signChallenge, describeChallenge, submitApproved,
+  challengeQrPayload, parseChallengeQr,
+} from "./phone.ts";
+export { txResultName } from "./vault.ts";
+export type { ApprovalChallenge } from "./phone.ts";

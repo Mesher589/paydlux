@@ -37,6 +37,31 @@ export const USDC_ISSUER: Record<Network, string> = {
 };
 
 /** A rejected Stellar transaction, with the ledger's own reason code. */
+// Horizon hands back the transaction result as XDR:
+//   struct TransactionResult { int64 feeCharged; TransactionResultCode resultCode; ... }
+// so the code is the signed int32 at byte offset 8, not the first 8 bytes (that
+// is the fee). -6 = txBAD_AUTH = "not enough signatures", which is exactly what
+// a half-signed vault payment looks like.
+const TX_RESULT_CODES: Record<number, string> = {
+  0: "SUCCESS", [-1]: "FAILED", [-2]: "TOO_EARLY", [-3]: "TOO_LATE",
+  [-4]: "MISSING_OPERATION", [-5]: "BAD_SEQ", [-6]: "BAD_AUTH",
+  [-7]: "INSUFFICIENT_BALANCE", [-8]: "NO_ACCOUNT", [-9]: "INSUFFICIENT_FEE",
+  [-10]: "BAD_AUTH_EXTRA", [-11]: "INTERNAL_ERROR", [-12]: "NOT_SUPPORTED",
+  [-13]: "ACCOUNT_EXISTS", [-14]: "INSUFFICIENT_REWARDS",
+};
+
+/** Turn Horizon's result_xdr into a readable code, e.g. "BAD_AUTH". */
+export function txResultName(resultXdr: string): string | undefined {
+  try {
+    const b = Buffer.from(resultXdr, "base64");
+    if (b.length < 12) return undefined;
+    const n = b.readInt32BE(8);
+    return TX_RESULT_CODES[n] ?? `code ${n}`;
+  } catch {
+    return undefined;
+  }
+}
+
 export class StellarTxError extends Error {
   constructor(public code: string, cause?: unknown) {
     super(`stellar tx rejected: ${code}`);
@@ -367,7 +392,9 @@ async function sub(h: Horizon.Server, _pass: string, tx: Transaction, ...signers
     let codes: string[] | undefined;
     try { codes = e?.resultResultCodes?.()?.results; } catch { /* shape differs */ }
     codes ??= e?.response?.data?.extras?.result_codes?.results;
-    const detail = codes?.join(",") || e?.response?.data?.extras?.result_xdr || e?.message || String(e);
+    const resultXdr = e?.response?.data?.extras?.result_xdr;
+    const named = resultXdr ? txResultName(resultXdr) : undefined;
+    const detail = codes?.join(",") || named || resultXdr || e?.message || String(e);
     throw new StellarTxError(detail, e);
   }
 }

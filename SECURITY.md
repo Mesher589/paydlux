@@ -44,12 +44,37 @@ In rough order:
    unguessable portal key.
 5. Key handling: how seeds are generated, stored, or logged.
 
-## Known open issue, stated plainly
+## Key handling: what is fixed, and what is not
 
-The human approval key is currently a file on the operator's own machine. That
-is a design gap we are aware of and are working on, not a bug to discover. Until
-it is fixed, the 2-of-2 guarantee only holds as well as the security of that
-laptop. Do not put real funds anywhere near this.
+The original design gap was that the human approval key sat in the same process
+as the seller's key, which made "2 of 2" a single point of failure. That is now
+split, and the split is tested rather than asserted:
+
+- `stellar/phone.ts` — the seller builds and signs the payment with their own
+  half only, and sends it out unsigned by the human. The human's device signs
+  offline and returns the signature. The approver seed never travels to the
+  seller's machine.
+- `stellar/phone-check.ts` — proves on live testnet that the seller alone cannot
+  pay (`BAD_AUTH`), the phone alone cannot pay, a swapped transaction is refused
+  before signing, and a signature stolen from one payment is rejected when
+  pasted onto another.
+- `stellar/desk-split-check.ts` and `stellar/e2e-phone.ts` — the approval desk
+  runs with no approver key at all and still settles, and refuses a signature
+  that belongs to a different payment.
+
+Still open, and worth reporting if you find it worse than described:
+
+- The default development path (`DeskConfig.approver`) still accepts both seeds
+  on one machine. It is kept for demos and is marked DEV ONLY.
+- The phone signer is a command-line tool (`tools/phone-sign.ts`), not a phone
+  app. There is no secure enclave, no biometric gate, and no attestation that
+  the signing device is the intended one.
+- The payload travels as text. It is integrity-checked by hash, but not
+  confidential, and there is no channel binding between the desk and the device
+  that answers it.
+
+There is still **no audit** and **no real money**. Do not put real funds
+anywhere near this.
 
 ## Safe harbour
 

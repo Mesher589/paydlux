@@ -32,6 +32,8 @@ export function portalPage(records: DeskRecord[], vault: string, network: string
  .st{font-size:12px;text-transform:uppercase;letter-spacing:.06em}
  .settled{color:var(--green)} .denied,.failed{color:#e07a6b} .pending{color:var(--gold)}
  .tx{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+ .qr{font-size:10px;white-space:pre-wrap;background:#141715;padding:8px;border-radius:8px;color:var(--text)}
+ details summary{cursor:pointer}
  .foot{margin-top:28px;color:var(--muted);font-size:12px}
  @media(max-width:640px){.body{max-width:180px}}
 </style></head><body>
@@ -47,8 +49,9 @@ export function portalPage(records: DeskRecord[], vault: string, network: string
    document.querySelector('tbody').innerHTML=d.map(row).join('')||'<tr><td colspan="5" class="empty">nothing waiting</td></tr>';
    document.getElementById('t').textContent=new Date().toLocaleTimeString()}
  function row(x){const st='<span class="st '+x.status+'">'+x.status+'</span>'+(x.tx?'<div class="tx">'+x.tx+'</div>':'')+(x.reason?'<div class="tx">'+x.reason+'</div>':'');
-  const btns=x.status==='pending'?'<button class="yes" onclick="act(\\'approve\\',\\''+x.id+'\\')">Approve</button><button class="no" onclick="act(\\'deny\\',\\''+x.id+'\\')">Deny</button>':'';
-  return '<tr><td>'+new Date(x.at).toLocaleTimeString()+'</td><td><div class="uri">'+x.uri+'</div><div class="body">'+(x.body||'')+'</div></td><td class="amt">'+x.price+'</td><td>'+st+'</td><td style="min-width:130px">'+btns+'</td></tr>'}
+  const btns=x.status==='pending'?'<button class="yes" onclick="act(\'approve\',\''+x.id+'\')">Approve</button><button class="no" onclick="act(\'deny\',\''+x.id+'\')">Deny</button>':'';
+  const ph=x.status==='awaiting_phone'?'<div class="tx">awaiting your phone</div>':'';
+  return '<tr><td>'+new Date(x.at).toLocaleTimeString()+'</td><td><div class="uri">'+x.uri+'</div><div class="body">'+(x.body||'')+'</div></td><td class="amt">'+x.price+'</td><td>'+st+ph+'</td><td style="min-width:130px">'+btns+'</td></tr>'}
  setInterval(load,3000);
 </script></body></html>`;
 }
@@ -58,7 +61,13 @@ function render(r: DeskRecord) {
     ? `<button class="yes" onclick="act('approve','${r.id}')">Approve</button>
        <button class="no" onclick="act('deny','${r.id}')">Deny</button>`
     : "";
-  const meta = [r.tx && `<div class="tx">${r.tx}</div>`, r.reason && `<div class="tx">${r.reason}</div>`].filter(Boolean).join("");
+  // Split mode: the desk has no approver key, so approving hands the payment to
+  // a phone. Show the human exactly what the phone will be asked to sign.
+  const phone = r.status === "awaiting_phone" && r.challenge
+    ? `<div class="tx">awaiting your phone · ${r.challenge.summary.amount} ${r.challenge.summary.token} to ${r.challenge.summary.payee.slice(0, 12)}…</div>
+       <details class="tx"><summary>approval payload for the phone</summary><pre class="qr">${r.qr}</pre></details>`
+    : "";
+  const meta = [phone, r.tx && `<div class="tx">${r.tx}</div>`, r.reason && `<div class="tx">${r.reason}</div>`].filter(Boolean).join("");
   return `<tr>
   <td>${new Date(r.at).toLocaleTimeString()}</td>
   <td><div class="uri">${r.uri}</div><div class="body">${r.body || ""}</div></td>
