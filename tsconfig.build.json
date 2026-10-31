@@ -15,6 +15,7 @@
     "stellar/agent.ts",
     "stellar/desk.ts",
     "stellar/portal.ts",
-    "stellar/policy.ts"
+    "stellar/policy.ts",
+    "stellar/phone.ts"
   ]
 }

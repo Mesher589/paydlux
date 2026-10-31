@@ -48,6 +48,24 @@ npx tsx stellar/story.ts --public   # one unguessable link; approve from your ph
 
 No wallet, no faucet, no config.
 
+### The human key does not live on the seller's machine
+
+The vault needs two signatures. If both keys sit in one process, that is really
+one key. So the approval half is split off:
+
+```bash
+npx tsx stellar/phone-check.ts      # seller alone cannot pay; phone alone cannot pay
+npx tsx stellar/e2e-phone.ts        # desk with no approver key still settles
+```
+
+The seller builds the payment and signs it with their own half. The human's
+device (`tools/phone-sign.ts`) decodes it, shows a person the amount and payee,
+and signs offline. The approver seed never travels to the seller's machine, and
+the signature is over the transaction hash — change the amount or the payee and
+it stops counting.
+
+No wallet, no faucet, no config.
+
 Use it as a package instead of cloning:
 
 ```bash
