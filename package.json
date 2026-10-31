@@ -5,7 +5,10 @@
   "main": "index.js",
   "scripts": {
     "demo": "node sdk/demo.ts",
-    "test": "cd contracts && forge test"
+    "demo:stellar": "tsx stellar/demo.ts",
+    "setup:stellar": "tsx stellar/onboard.ts",
+    "test": "cd contracts && forge test",
+    "test:stellar": "tsx stellar/demo.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,5 +18,10 @@
     "stellar-sdk": "^13.3.0",
     "viem": "^2.57.13",
     "xrpl": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
