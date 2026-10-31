@@ -46,12 +46,20 @@ npx tsx stellar/demo.ts             # 12 checks, live testnet
 npx tsx stellar/story.ts --public   # one unguessable link; approve from your phone
 ```
 
-No wallet, no faucet, no config. The SDK also builds as an npm package
-(`npm run build` → `dist/`, published as `@paydlux/agent`):
+No wallet, no faucet, no config.
+
+Use it as a package instead of cloning:
+
+```bash
+npm install @paydlux/agent
+```
 
 ```ts
 import { StellarVault, Gateway, PaydluxAgent } from "@paydlux/agent";
 ```
+
+`npm run build` produces `dist/`. The package depends only on
+`@stellar/stellar-sdk` — no transitive `toml`, so `npm audit` is clean.
 
 `story.ts --public` matters for demos: the portal has no login, so the printed
 link carries a 22-character key and every request without it gets a 403.

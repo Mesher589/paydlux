@@ -8,7 +8,7 @@
 //   3. a tampered envelope is refused by the ledger
 //   4. an over-budget request is declined before anything is built
 //   5. an approval-mode payment waits for a human, then settles on approval
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";

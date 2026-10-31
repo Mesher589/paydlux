@@ -1,6 +1,6 @@
 // Does the real-money path work? Circle issues USDC natively on Stellar, so we
 // only need a trustline to Circle's issuer — no issuer key of our own.
-import { Keypair } from "stellar-sdk";
+import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault, USDC_ISSUER } from "./vault.ts";
 
 const log = (...a: unknown[]) => console.log("•", ...a);
@@ -17,7 +17,7 @@ const main = async () => {
 
   await v.trustUsdc(principal, approver);
   v.useUsdc();
-  log("USDC trustline added, token now:", v.token.getCode(), v.token.getIssuer().slice(0, 10) + "…");
+  log("USDC trustline added, token now:", v.token.getCode(), (v.token.getIssuer() ?? "?").slice(0, 10) + "…");
   if (v.token.getIssuer() !== USDC_ISSUER.testnet) throw new Error("wrong Circle issuer");
 
   // Circle's testnet faucet mints real USDC structure for testing

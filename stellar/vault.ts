@@ -17,9 +17,14 @@
 import {
   Account, Asset, Horizon, Keypair, Memo, Networks, Operation, StrKey,
   Transaction, TransactionBuilder,
-} from "stellar-sdk";
+} from "@stellar/stellar-sdk";
 
 export type Network = "testnet" | "public";
+
+/** stellar-sdk v17 hands back Uint8Array where v13 gave Buffer. One helper, one shape. */
+export function hex(b: Uint8Array | string): string {
+  return typeof b === "string" ? b : Buffer.from(b).toString("hex");
+}
 
 /**
  * Circle's own USDC issuer on Stellar. Not a wrapped token, not a bridge:
@@ -250,7 +255,7 @@ export class StellarVault {
       .setTimebounds(notBefore, expiresAt);
     if (spec.memo) eb.addMemo(Memo.text(spec.memo));
     const envelope = eb.build();
-    const hash = envelope.hash().toString("hex");
+    const hash = hex(envelope.hash());
 
     // register the hash as a weight-1 signer. Two signatures now exist that
     // reach threshold 2: (agent + this hash) and (principal + approver).

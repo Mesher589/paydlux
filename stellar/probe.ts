@@ -6,7 +6,7 @@
 // Run: npx tsx stellar/probe.ts
 import {
   Keypair, Networks, Horizon, Asset, TransactionBuilder, Operation, Claimant,
-} from "stellar-sdk";
+} from "@stellar/stellar-sdk";
 
 const HORIZON = new Horizon.Server("https://horizon-testnet.stellar.org");
 const FRIENDBOT = "https://friendbot.stellar.org";

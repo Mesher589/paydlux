@@ -13,8 +13,8 @@
 //
 // Either way the agent's key alone can never move money: threshold is 2.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { Keypair, StrKey, Transaction } from "stellar-sdk";
-import { StellarVault, StellarTxError, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
+import { Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
+import { StellarVault, StellarTxError, hex, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
 import { ApprovalDesk, type DeskStore } from "./desk.ts";
 
 export const PAY_HEADER = "x-payment";
@@ -148,7 +148,7 @@ export class Gateway {
       || op.asset?.getIssuer?.() !== this.cfg.vault.token.getIssuer()) {
       throw new Error("envelope pays in a different token");
     }
-    const hash = tx.hash().toString("hex");
+    const hash = hex(tx.hash());
     if (hash !== proof.mandateHash) throw new Error("envelope hash does not match the declared mandate");
 
     // The vault stores the mandate as a strkey "T…" signer (base32 of the hash),
@@ -156,7 +156,7 @@ export class Gateway {
     const live = await this.cfg.vault.signerSummary();
     const registered = live.signers
       .filter((s: { type: string }) => s.type === "preauth-mandate")
-      .map((s: { key: string }) => StrKey.decodePreAuthTx(s.key).toString("hex"));
+      .map((s: { key: string }) => hex(StrKey.decodePreAuthTx(s.key)));
     if (!registered.includes(hash)) {
       throw new Error("mandate is not registered on the vault (expired or revoked)");
     }
@@ -235,7 +235,7 @@ export class Gateway {
         const tx = new Transaction(proof.envelope!, passphrase(this.cfg.vault.network));
         const agentSig = (tx as any).signatures?.[0];
         if (!agentSig) throw new Error("envelope carries no agent signature");
-        const envHash = tx.hash().toString("hex");
+        const envHash = hex(tx.hash());
         if (this.settled.has(envHash)) throw new Error("mandate already redeemed");
         const applied = await this.cfg.vault.txExists(envHash);
         if (applied) { this.settled.add(envHash); throw new Error("mandate already redeemed"); }
