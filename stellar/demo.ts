@@ -68,18 +68,20 @@ const main = async () => {
   ok(`content served, tx ${paid.tx?.slice(0, 16)}…`);
   ok(`seller ${await vault.balance(seller.publicKey())}, vault ${await vault.balance()}`);
 
-  step("5. tamper with the envelope — the ledger refuses");
+  step("5. replay the same mandate — money moves once, content ships once");
+  const again = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/data`, { mandate });
+  if (again.ok) bad("mandate replayed and paid twice");
+  ok(`refused: ${again.reason}`);
+  if (await vault.balance(seller.publicKey()) !== "2.0000000") bad("balance moved twice");
+  ok(`seller still at 2.0000000`);
+
+  step("6. tamper with the envelope — the ledger refuses");
   const forged = await gw.authorise("/api/data",
     { payee: seller.publicKey(), amount: "2", ttl: 600 }, principal, approver);
   const tampered = { ...forged, envelope: swapAmount(forged.envelope) };
   const t = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/data`, { mandate: tampered as any });
   if (t.ok) bad("a tampered envelope was accepted");
   ok(`refused: ${t.reason}`);
-
-  step("6. replay the same mandate — money moves once");
-  const again = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/data`, { mandate });
-  if (again.ok) bad("mandate replayed and paid twice");
-  ok(`refused: ${again.reason}`);
 
   step("7. over-budget request is declined before anything is built");
   const v2 = policy.check({ amount: 40, payee: seller.publicKey(), ttl: 600 });

@@ -256,9 +256,17 @@ export class StellarVault {
     // reach threshold 2: (agent + this hash) and (principal + approver).
     // setOptions needs med threshold 2, so registering a mandate always takes
     // both human keys. The agent can never write its own spending rules.
-    await sub(this.horizon, PASSPHRASE[this.network], (await this.tb(this.address))
-      .addOperation(Operation.setOptions({ signer: { preAuthTx: hash, weight: 1 } }))
-      .setTimeout(expiresAt - now + 60).build(), principal, approver);
+    //
+    // A pre-auth transaction is bound to a sequence number, so exactly ONE
+    // mandate can be live: the newest. Any older one is already in the past and
+    // can never run again. We revoke the old ones in the same transaction so
+    // the state is never ambiguous — one open order at a time, on purpose.
+    const b = await this.tb(this.address);
+    for (const s of (acc.signers ?? []).filter((s) => s.key.startsWith("T") && s.weight > 0)) {
+      b.addOperation(Operation.setOptions({ signer: { preAuthTx: StrKey.decodePreAuthTx(s.key), weight: 0 } }));
+    }
+    b.addOperation(Operation.setOptions({ signer: { preAuthTx: hash, weight: 1 } }));
+    await sub(this.horizon, PASSPHRASE[this.network], b.setTimeout(expiresAt - now + 60).build(), principal, approver);
 
     return { hash, envelope: envelope.toXDR(), spec, sequence: (BigInt(acc.sequence) + 2n).toString(), expiresAt };
   }

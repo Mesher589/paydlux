@@ -34,6 +34,7 @@ stellar/desk.ts      approval queue: a human decides, in the clear
 stellar/portal.ts    the page that human looks at
 stellar/policy.ts    daily budget / seller allowlist (the part a ledger can't count)
 stellar/demo.ts      11 checks against the live testnet, one command
+stellar/probe-*.ts   the experiments that settled how the ledger behaves
 stellar/onboard.ts   keys → funded vault → printed agent key
 ```
 
@@ -83,6 +84,19 @@ if (res.ok) console.log(res.data, "paid in tx", res.tx);
 
 The vault is one payment at a time; counting payments is our job. A rule break
 means we never build the transaction, so nothing reaches the ledger.
+
+Two ledger behaviours we verified rather than assumed, and designed around:
+
+- **A mandate is consumed on use.** After it runs, Stellar removes the pre-auth
+  signer. One mandate, one payment — no counter needed.
+- **A pre-auth transaction is bound to a sequence number**, so only the newest
+  mandate can ever run; an older one is in the past and can never fire.
+  `createMandate` therefore revokes previous mandates in the same transaction.
+  The product is deliberately one open order at a time.
+- **Resubmitting an identical envelope does not error.** Horizon returns the
+  *cached* result. The money cannot move twice, but a naive gateway would serve
+  the content twice — so `gateway.ts` checks the ledger for an already-applied
+  transaction before shipping anything.
 
 ### Real money
 

@@ -24,7 +24,11 @@ export type Policy = {
   denylist?: string[];
   /** longest a mandate may stay live, seconds */
   maxMandateTtl: number;
-  /** most mandates that may be live at once */
+  /**
+   * Mandates live at once. Stellar binds a pre-auth transaction to a sequence
+   * number, so only the newest can ever run — keep this at 1 and the state
+   * matches what the ledger will actually honour.
+   */
   maxLiveMandates: number;
 };
 
@@ -34,7 +38,7 @@ export const DEFAULT_POLICY: Policy = {
   allowlist: [],
   denylist: [],
   maxMandateTtl: 3600,
-  maxLiveMandates: 10,
+  maxLiveMandates: 1,
 };
 
 export type SpendEvent = {
