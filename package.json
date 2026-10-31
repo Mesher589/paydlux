@@ -1,6 +1,6 @@
 {
   "name": "@paydlux/agent",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Payments for AI agents that a human approves. Spending mandates enforced on the Stellar ledger: 2-of-2 vault, pre-authorised transaction envelopes, HTTP 402, USDC.",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,6 +13,9 @@
   },
   "files": [
     "dist",
+    "phone-app/index.html",
+    "phone-app/app.js",
+    "phone-app/xdr.js",
     "README.md",
     "LICENSE"
   ],
@@ -28,6 +31,7 @@
     "story:stellar": "tsx stellar/story.ts",
     "test": "cd contracts && forge test",
     "test:stellar": "tsx stellar/demo.ts",
+    "test:phone": "tsx stellar/phone-check.ts && tsx stellar/desk-split-check.ts && tsx stellar/e2e-phone.ts && tsx phone-app/xdr-check.ts && tsx phone-app/app-check.ts && tsx phone-app/desk-app-check.ts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [

@@ -61,17 +61,39 @@ split, and the split is tested rather than asserted:
 - `stellar/desk-split-check.ts` and `stellar/e2e-phone.ts` — the approval desk
   runs with no approver key at all and still settles, and refuses a signature
   that belongs to a different payment.
+- `phone-app/` — the approver is now a browser app the human opens on their own
+  device. It ships its own transaction decoder instead of the SDK, and
+  `phone-app/xdr-check.ts` proves that decoder is byte-exact with the official
+  SDK on 32 cases. Anything it does not fully parse — path payments, account
+  merges, signer changes, multi-operation transactions, fee-bump or v0
+  envelopes, Soroban transactions — is refused rather than interpreted.
+  `phone-app/desk-app-check.ts` drives the real app against the real desk over
+  real HTTP on live testnet, including path traversal and a signature replayed
+  onto a different payment.
+- The key is imported into WebCrypto as **non-extractable**; only the
+  `CryptoKey` object is persisted, never the seed, never a JWK. The app is
+  served with `default-src 'none'; script-src 'self'; connect-src 'self'` and no
+  inline script, so a script injected into the page can neither read the key nor
+  send it anywhere.
 
 Still open, and worth reporting if you find it worse than described:
 
 - The default development path (`DeskConfig.approver`) still accepts both seeds
-  on one machine. It is kept for demos and is marked DEV ONLY.
-- The phone signer is a command-line tool (`tools/phone-sign.ts`), not a phone
-  app. There is no secure enclave, no biometric gate, and no attestation that
-  the signing device is the intended one.
+  on one machine. It is kept for demos and is marked DEV ONLY; `--split` is the
+  mode that reflects the real key model.
+- The signing device is a browser tab, not a secure enclave. There is no
+  biometric gate, no hardware attestation, and nothing proving the device that
+  answers the desk is the intended one. Clearing site data loses the key (it can
+  be re-imported from the seed; the seed itself is the thing to keep safe).
+- The portal key is the only thing between the public internet and the ability
+  to *request* a signature. It cannot spend anything by itself — spending still
+  needs the approver signature — but a leaked portal key does expose pending
+  requests and their amounts.
 - The payload travels as text. It is integrity-checked by hash, but not
   confidential, and there is no channel binding between the desk and the device
   that answers it.
+- The desk is plain HTTP on a throwaway tunnel. Until it runs behind TLS on a
+  domain you control, the human is signing over a connection they cannot verify.
 
 There is still **no audit** and **no real money**. Do not put real funds
 anywhere near this.

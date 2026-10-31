@@ -9,7 +9,7 @@ import type { DeskRecord } from "./desk.ts";
 
 export function portalPage(records: DeskRecord[], vault: string, network: string, qs = "") {
   const rows = records.length
-    ? records.map(render).join("\n")
+    ? records.map((r) => render(r, qs)).join("\n")
     : `<tr><td colspan="5" class="empty">nothing waiting</td></tr>`;
   return `<!doctype html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -34,6 +34,7 @@ export function portalPage(records: DeskRecord[], vault: string, network: string
  .tx{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);word-break:break-all}
  .qr{font-size:10px;white-space:pre-wrap;background:#141715;padding:8px;border-radius:8px;color:var(--text)}
  details summary{cursor:pointer}
+ .phlink{color:var(--gold);text-decoration:underline;font-size:12px}
  .foot{margin-top:28px;color:var(--muted);font-size:12px}
  @media(max-width:640px){.body{max-width:180px}}
 </style></head><body>
@@ -56,15 +57,22 @@ export function portalPage(records: DeskRecord[], vault: string, network: string
 </script></body></html>`;
 }
 
-function render(r: DeskRecord) {
+function render(r: DeskRecord, qs = "") {
+  // qs is the portal key query string ("?k=..."). The approver link has to carry
+  // it, because the desk answers 403 for anything without it.
+  const link = `phone/?id=${encodeURIComponent(r.id)}${qs.replace("?", "&")}`;
   const btns = r.status === "pending"
     ? `<button class="yes" onclick="act('approve','${r.id}')">Approve</button>
        <button class="no" onclick="act('deny','${r.id}')">Deny</button>`
     : "";
   // Split mode: the desk has no approver key, so approving hands the payment to
   // a phone. Show the human exactly what the phone will be asked to sign.
+  // Split mode: the desk has no approver key, so approving hands the payment to
+  // a phone. Show the human exactly what the phone will be asked to sign, and
+  // give the approver app a link so nobody pastes base64 on a small screen.
   const phone = r.status === "awaiting_phone" && r.challenge
     ? `<div class="tx">awaiting your phone · ${r.challenge.summary.amount} ${r.challenge.summary.token} to ${r.challenge.summary.payee.slice(0, 12)}…</div>
+       <div class="tx"><a class="phlink" href="${link}">open on your phone to sign</a></div>
        <details class="tx"><summary>approval payload for the phone</summary><pre class="qr">${r.qr}</pre></details>`
     : "";
   const meta = [phone, r.tx && `<div class="tx">${r.tx}</div>`, r.reason && `<div class="tx">${r.reason}</div>`].filter(Boolean).join("");

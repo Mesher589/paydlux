@@ -10,6 +10,9 @@
 //   - a stolen phone cannot approve alone
 //   - the approval is a real ledger signature, not a database flag
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { TransactionBuilder } from "@stellar/stellar-sdk";
@@ -20,6 +23,29 @@ import {
   createApprovalChallenge, submitApproved, challengeQrPayload,
   type ApprovalChallenge,
 } from "./phone.ts";
+
+/**
+ * The approver app is plain static files under phone-app/. Read on each request
+ * rather than bundled, so the desk and the app can never drift apart.
+ */
+const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "phone-app");
+const appCache = new Map<string, string>();
+function readAppFile(name: string): string {
+  const safe = name.replace(/[^a-z.]/g, "");
+  const hit = appCache.get(safe);
+  if (hit) return hit;
+  let text: string;
+  try {
+    text = readFileSync(join(APP_DIR, safe), "utf8");
+  } catch {
+    // A package install that shipped without phone-app/ should say so instead of
+    // throwing out of the request handler.
+    throw new Error(
+      "approver app is missing from this install (expected " + join(APP_DIR, safe) + ")");
+  }
+  appCache.set(safe, text);
+  return text;
+}
 
 /** A portal link is a capability: whoever holds it can approve. So it is long,
  *  random, and compared without leaking timing. */
@@ -273,6 +299,65 @@ export class ApprovalDesk {
           return;
         }
         if (url.pathname === "/list") return send(200, this.list());
+
+        // The approver app. Served from the desk so the human opens one link on
+        // their phone instead of pasting XDR around. The app itself makes no
+        // requests after loading, and the portalKey gate above already covers
+        // these paths: without the key, nothing here is reachable.
+        // The app uses relative script srcs, so it must be served from a
+        // directory URL. /phone without the slash would resolve app.js to
+        // /app.js, so send it to the canonical path with the key intact.
+        if (url.pathname === "/phone") {
+          res.writeHead(302, { location: "/phone/" + url.search });
+          res.end();
+          return;
+        }
+        if (url.pathname === "/phone/" || url.pathname === "/phone/index.html") {
+          res.writeHead(200, {
+            "content-type": "text/html; charset=utf-8",
+            // The key lives in IndexedDB behind a non-extractable CryptoKey;
+            // an injected script is the realistic threat, so lock the origin.
+            // No inline script on the page: app.js and xdr.js are separate
+            // files, so script-src 'self' actually holds. connect-src 'self' is
+            // what stops the app talking anywhere but the desk that served it.
+            "content-security-policy":
+              "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+              "img-src 'self' data:; connect-src 'self'; base-uri 'none'; " +
+              "form-action 'none'; frame-ancestors 'none'",
+            "referrer-policy": "no-referrer",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(readAppFile("index.html"));
+          return;
+        }
+        if (url.pathname.startsWith("/phone/")) {
+          const file = url.pathname.slice("/phone/".length);
+          if (!/^[a-z]+\.(js|css)$/.test(file)) return send(404, { error: "not found" });
+          res.writeHead(200, {
+            "content-type": (file.endsWith(".css") ? "text/css" : "text/javascript") + "; charset=utf-8",
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(readAppFile(file));
+          return;
+        }
+        // The app fetches the pending transaction by handle rather than asking
+        // the human to paste 400 characters of base64 on a phone.
+        const ch = url.pathname.match(/^\/challenge\/([\w-]+)$/);
+        if (ch) {
+          const rec = this.records.get(ch[1]);
+          if (!rec) return send(404, { error: "unknown handle" });
+          // Opening the phone link IS the approval gesture, so build the
+          // challenge here if nobody pressed the button yet. The human should
+          // need one link, not a button on a desktop plus a link on a phone.
+          if (rec.status === "pending") await this.approve(rec.id);
+          if (!rec.challenge) return send(409, { error: `not awaiting a phone signature (it is ${rec.status})` });
+          return send(200, {
+            id: rec.id, network: rec.challenge.network,
+            hash: rec.challenge.hash, xdr: rec.challenge.xdr,
+          });
+        }
+
         const m = url.pathname.match(/^\/(approve|deny|signed)\/([\w-]+)$/);
         if (m && req.method === "POST") {
           if (m[1] === "signed") {

@@ -17,6 +17,7 @@ import { newPortalKey } from "./desk.ts";
 
 const GATEWAY_PORT = 4021, DESK_PORT = 4022;
 const PUBLIC = process.argv.includes("--public");
+const SPLIT = process.argv.includes("--split");
 const log = (...a: unknown[]) => console.log("•", ...a);
 
 const main = async () => {
@@ -33,7 +34,12 @@ const main = async () => {
   const portalKey = PUBLIC ? newPortalKey() : undefined;
   const gw = new Gateway({
     vault, network: "testnet", payee: seller.publicKey(), deskPort: DESK_PORT,
-    principal: principal.secret(), approver: approver.secret(),
+    principal: principal.secret(),
+    // --split is the honest demo: the approver key is printed for the phone and
+    // never given to this process. Without it the laptop holds both halves, and
+    // "2 of 2" is really 1 of 1.
+    approver: SPLIT ? undefined : approver.secret(),
+    split: SPLIT,
     portalKey,
     routes: [{ uri: "/market/data", price: "4.50", mode: "approval", holdSeconds: 3600 }],
   });
@@ -47,6 +53,13 @@ const main = async () => {
   log("seller balance before:", await vault.balance(seller.publicKey()));
 
   console.log("\nPORTAL  http://127.0.0.1:" + DESK_PORT + "/" + (portalKey ? `?k=${portalKey}` : ""));
+  if (SPLIT) {
+    console.log("\nAPPROVER APP  http://127.0.0.1:" + DESK_PORT + "/phone/" +
+      (portalKey ? `?k=${portalKey}` : ""));
+    console.log("  approver seed for that device ONLY (this process never sees it):");
+    console.log("  " + approver.secret());
+    console.log("  keep it off this machine. Re-run without --split to skip the phone.");
+  }
   if (PUBLIC) tunnel(portalKey!);
   console.log("\nSTORY READY — click Approve in the browser, then ctrl-c to stop.");
 };
