@@ -61,11 +61,20 @@ function tunnel(portalKey: string) {
     if (m && !shown) {
       shown = true;
       console.log("\nPUBLIC  " + m[0] + `/?k=${portalKey}`);
+      console.log("          (stop with ctrl-c — the link dies with this process)");
     }
   };
   cf.stdout.on("data", grab);
   cf.stderr.on("data", grab);
   cf.on("exit", () => console.log("[tunnel] closed"));
+
+  // An orphaned cloudflared is a public approval desk with nobody watching it.
+  // Kill the child on every exit path, including ctrl-c and SIGTERM.
+  const close = () => { if (!cf.killed) cf.kill("SIGTERM"); };
+  process.on("exit", close);
+  for (const sig of ["SIGINT", "SIGTERM"] as const) {
+    process.on(sig, () => { close(); process.exit(0); });
+  }
 }
 
 main().catch((e) => console.error("FAIL:", (e as Error).message));
