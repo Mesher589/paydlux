@@ -13,6 +13,10 @@ npx tsx stellar/onboard.ts     # makes you a real vault + prints the agent key
 `demo.ts` output ends with `ALL CHECKS PASSED`. It creates fresh keys every
 run, so it is safe to run repeatedly.
 
+`npx tsx stellar/story.ts` is the story version: it sets up a vault, parks one
+real approval request, and stays up so a human can click Approve in a browser
+at `http://127.0.0.1:4022/`. That is what the demo clip was recorded from.
+
 ## The mechanism, in one paragraph
 
 The vault is a normal Stellar account with three signers — you (principal),
