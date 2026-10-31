@@ -20,7 +20,7 @@ import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";
 import { newPortalKey } from "./desk.ts";
-import { PUBLIC_HOST, runTunnel, tunnelLive, tunnelReady } from "./tunnel.ts";
+import { PUBLIC_HOST, runTunnel, tunnelLive, tunnelProblem } from "./tunnel.ts";
 
 const GATEWAY_PORT = 4021, DESK_PORT = 4022;
 const PUBLIC = process.argv.includes("--public");
@@ -29,6 +29,15 @@ const SPLIT = process.argv.includes("--split");
 const log = (...a: unknown[]) => console.log("•", ...a);
 
 const main = async () => {
+  // Preflight before anything is funded. Funding testnet accounts takes ~30s and
+  // prints a portal link; if the tunnel then fails to start, that link and the
+  // approver seed are already on screen pointing at nothing, and the human has
+  // no way to tell the run died. Fail first, explain what is missing.
+  if (TLS) {
+    const problem = tunnelProblem();
+    if (problem) { console.log("\n--tls cannot run here: " + problem); process.exit(1); }
+  }
+
   const issuer = Keypair.random(), principal = Keypair.random();
   const approver = Keypair.random(), agent = Keypair.random(), seller = Keypair.random();
   for (const k of [issuer, principal, approver, seller]) await StellarVault.fundTestnet(k);
@@ -39,8 +48,6 @@ const main = async () => {
   await vault.deposit("50", issuer);
   log("vault", vault.address, "balance", await vault.balance());
 
-  // Any path that puts the desk on a public URL needs the key. --tls is public
-  // by definition, so forgetting --public must not silently remove the gate.
   // Any path that puts the desk on a public URL needs the key. --tls is public
   // by definition, so forgetting --public must not silently remove the gate.
   // --key lets a test drive the public desk with a key it already knows.
@@ -71,6 +78,25 @@ const main = async () => {
   log("agent parked", ask.handle, "— waiting for a human");
   log("seller balance before:", await vault.balance(seller.publicKey()));
 
+  // Bring the public path up BEFORE printing anything a human would act on.
+  // Printing the portal link and the approver seed first means a failed run
+  // leaves a live-looking link and a real secret on screen pointing at nothing.
+  if (TLS) {
+    const t = runTunnel();
+    log("opening https://" + PUBLIC_HOST + " ...");
+    if (!(await tunnelLive())) {
+      // Report the actual reason rather than a guess. A silent timeout here is
+      // how a broken config.yml or a missing DNS route gets blamed on the code.
+      console.log("\nthe tunnel did not answer on https://" + PUBLIC_HOST + ".");
+      if (t.lastError()) console.log("cloudflared said: " + t.lastError());
+      console.log("check ~/.cloudflared/config.yml (service: http://127.0.0.1:" + DESK_PORT +
+        ") and that the DNS route exists:");
+      console.log("  cloudflared tunnel route dns paydlux-desk " + PUBLIC_HOST);
+      process.exit(1);
+    }
+    log("TLS verified on https://" + PUBLIC_HOST);
+  } else if (PUBLIC) tunnel(portalKey!);
+
   // In --tls mode the desk pins its Host header, so the loopback URL is refused
   // on purpose: the only way in is the tunnel. Print the link the human will
   // actually use, not one that 403s.
@@ -83,24 +109,6 @@ const main = async () => {
     console.log("  " + approver.secret());
     console.log("  keep it off this machine. Re-run without --split to skip the phone.");
   }
-  if (TLS) {
-    if (!tunnelReady()) {
-      console.log("\n--tls needs a named tunnel on this machine. One-time setup:");
-      console.log("  cloudflared tunnel login");
-      console.log("  cloudflared tunnel create paydlux-desk");
-      console.log("  cloudflared tunnel route dns paydlux-desk " + PUBLIC_HOST);
-      console.log("  and ~/.cloudflared/config.yml pointing at 127.0.0.1:" + DESK_PORT);
-      process.exit(1);
-    }
-    runTunnel();
-    log("opening https://" + PUBLIC_HOST + " ...");
-    if (!(await tunnelLive())) {
-      console.log("the tunnel did not answer on https://" + PUBLIC_HOST +
-        ". Check ~/.cloudflared/config.yml and that the DNS route exists.");
-      process.exit(1);
-    }
-    log("TLS verified on https://" + PUBLIC_HOST);
-  } else if (PUBLIC) tunnel(portalKey!);
   console.log("\nSTORY READY — click Approve in the browser, then ctrl-c to stop.");
 };
 
