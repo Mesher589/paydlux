@@ -21,7 +21,9 @@
  *   node tools/mail.mjs send  --to x --subject y --body z   (needs --yes)
  */
 
-import { readFileSync, existsSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, chmodSync, mkdirSync, readFile } from "node:fs";
+import { promisify } from "node:util";
+const readFileAsync = promisify(readFile);
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -131,12 +133,20 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
 
   if (cmd === "exchange") {
+    // Read the code from stdin when not given as an argument: keeps it out of
+    // the user's shell history and avoids quoting problems on a long token.
+    let code = rest[0];
+    if (!code) {
+      process.stdout.write("paste the Zoho code, then press Enter:\n");
+      code = (await readFileAsync(0, "utf8")).trim();
+    }
+    if (!code) throw new Error("no code given");
     const j = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "authorization_code",
-        code: rest[0],
+        code,
         client_id: need("zoho-client-id.key"),
         client_secret: need("zoho-client-secret.key"),
       }),
