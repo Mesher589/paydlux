@@ -21,9 +21,8 @@
  *   node tools/mail.mjs send  --to x --subject y --body z   (needs --yes)
  */
 
-import { readFileSync, existsSync, writeFileSync, chmodSync, mkdirSync, readFile } from "node:fs";
-import { promisify } from "node:util";
-const readFileAsync = promisify(readFile);
+import { readFileSync, existsSync, writeFileSync, chmodSync, mkdirSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -133,14 +132,31 @@ async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
 
   if (cmd === "exchange") {
-    // Read the code from stdin when not given as an argument: keeps it out of
-    // the user's shell history and avoids quoting problems on a long token.
+    // The code is single-use, but it still should not sit in shell history or
+    // in this conversation. On macOS: copy the code in Zoho, then
+    //   pbpaste > ~/.hermes/secrets/zoho-code.txt
+    // and run `exchange`. The file is blanked as soon as it is consumed.
+    const codeFile = join(SECRET_DIR, "zoho-code.txt");
     let code = rest[0];
-    if (!code) {
-      process.stdout.write("paste the Zoho code, then press Enter:\n");
-      code = (await readFileAsync(0, "utf8")).trim();
+    if (!code && existsSync(codeFile)) {
+      code = readFileSync(codeFile, "utf8").split("\n")[0].trim();
     }
-    if (!code) throw new Error("no code given");
+    if (!code && process.stdin.isTTY) {
+      code = await new Promise((resolve) => {
+        const rl = createInterface({ input: process.stdin, output: process.stdout });
+        rl.question("paste the Zoho code, then press Enter: ", (a) => {
+          rl.close();
+          resolve(a.trim());
+        });
+      });
+    }
+    if (!code) {
+      throw new Error(
+        "no code found. copy the code in Zoho, then run:\n" +
+        `  pbpaste > ${codeFile}\n  node tools/mail.mjs exchange`,
+      );
+    }
+    if (existsSync(codeFile)) writeFileSync(codeFile, "");
     const j = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
