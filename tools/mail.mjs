@@ -47,8 +47,18 @@ const need = (name) => {
   return v;
 };
 
+// Access tokens last an hour. Fetching one per command got us rate-limited
+// ("too many requests continuously") within a minute, so cache it on disk and
+// only refresh when it is within 2 minutes of expiry.
+const TOKEN_FILE = join(SECRET_DIR, "zoho-access-token.json");
 async function accessToken() {
-  const r = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token`, {
+  if (existsSync(TOKEN_FILE)) {
+    try {
+      const c = JSON.parse(readFileSync(TOKEN_FILE, "utf8"));
+      if (c.expiresAt - Date.now() > 120_000) return c.accessToken;
+    } catch { /* fall through and refresh */ }
+  }
+  const j = await fetch(`${ACCOUNTS_HOST}/oauth/v2/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -57,9 +67,14 @@ async function accessToken() {
       client_id: need("zoho-client-id.key"),
       client_secret: need("zoho-client-secret.key"),
     }),
-  });
-  const j = await r.json();
-  if (!j.access_token) throw new Error(`token refresh failed: ${JSON.stringify(j)}`);
+  }).then((r) => r.json());
+  if (!j.access_token) throw new Error(`token refresh failed: ${JSON.stringify(j).slice(0, 200)}`);
+  mkdirSync(SECRET_DIR, { recursive: true, mode: 0o700 });
+  writeFileSync(TOKEN_FILE, JSON.stringify({
+    accessToken: j.access_token,
+    expiresAt: Date.now() + (Number(j.expires_in || 3600) * 1000),
+  }));
+  chmodSync(TOKEN_FILE, 0o600);
   return j.access_token;
 }
 
@@ -77,10 +92,28 @@ async function api(path, opts = {}) {
   const text = await r.text();
   let j;
   try { j = JSON.parse(text); } catch { j = { raw: text }; }
-  if (!r.ok || (j.status && j.status !== "ok")) {
+  // Zoho wraps responses as {status:{code,description},data:[...]}. A non-200
+  // code inside a 200 HTTP response is still an error, so check both.
+  const code = typeof j.status === "object" ? j.status?.code : j.status;
+  const failed = !r.ok || (code !== undefined && Number(code) !== 200 && Number(code) !== 201);
+  if (failed) {
     throw new Error(`${r.status} ${path}: ${text.slice(0, 400)}`);
   }
   return j.data ?? j;
+}
+
+// Zoho's view endpoint HTML-escapes address and subject fields.
+function decodeHtml(s) {
+  return String(s)
+    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+}
+
+// Zoho's message list endpoint is /messages/view (not /messages) and it wants
+// no folderId for this account. Verified against the live API.
+async function messagesView(id, start, limit) {
+  const data = await api(`/accounts/${id}/messages/view?start=${start}&limit=${limit}`);
+  return Array.isArray(data) ? data : (data?.messages || []);
 }
 
 async function accountId() {
@@ -88,7 +121,8 @@ async function accountId() {
   if (cached) return cached;
   const data = await api("/accounts");
   const list = Array.isArray(data) ? data : [data];
-  const id = String(list[0].accountId);
+  const chosen = list.find((a) => a.isDefaultAccount) || list[0];
+  const id = String(chosen.accountId);
   mkdirSync(SECRET_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(join(SECRET_DIR, "zoho-account-id.key"), id);
   chmodSync(join(SECRET_DIR, "zoho-account-id.key"), 0o600);
@@ -178,7 +212,9 @@ async function main() {
   if (cmd === "accounts") {
     const data = await api("/accounts");
     for (const a of (Array.isArray(data) ? data : [data])) {
-      console.log(`${a.accountId}  ${a.addressFrom?.join(", ") || a.name}  (default=${a.isDefault})`);
+      const addrs = (a.emailAddress || []).map(
+        (e) => `${e.mailId}${e.isAlias ? " (alias)" : ""}`).join(", ");
+      console.log(`${a.accountId}  ${addrs}  default=${a.isDefaultAccount} mx=${a.mxStatus}`);
     }
     return;
   }
@@ -187,36 +223,44 @@ async function main() {
 
   if (cmd === "inbox") {
     const n = Number(rest[0] || 15);
-    const data = await api(`/accounts/${id}/messages?folderId=Inbox&start=0&limit=${n}`);
-    const list = Array.isArray(data) ? data : (data?.messages || []);
+    // No folderId: Zoho's numeric folder ids are account-specific and the
+    // folder-list endpoint needs a scope the mail scopes don't grant. Omitting
+    // folderId returns the account's messages, newest first.
+    const list = await messagesView(id, 0, n);
     if (!list.length) { console.log("(inbox empty)"); return; }
     for (const m of list) {
-      const from = (m.fromAddress || m.from || []).map((f) => f.address || f).join(",");
-      const when = m.date ? new Date(Number(m.date)).toISOString().slice(0, 16) : "";
-      console.log(`${m.messageId}  ${when}  ${from}\n    ${m.subject || "(no subject)"}`);
+      const when = m.sentDateInGMT ? new Date(Number(m.sentDateInGMT)).toISOString().slice(0, 16) : "";
+      console.log(`${m.messageId}  ${when}  ${m.fromAddress || m.sender || "?"}\n    ${decodeHtml(m.subject || "(no subject)")}`);
     }
     console.log(`\n${list.length} message(s). read one: node tools/mail.mjs read <id>`);
     return;
   }
 
   if (cmd === "read") {
-    const data = await api(`/accounts/${id}/messages/${rest[0]}`);
-    const m = Array.isArray(data) ? data[0] : data;
-    const body = m.content || m.html || "";
-    console.log(`from:    ${(m.fromAddress || m.from || []).map((f) => f.address || f).join(",")}`);
-    console.log(`to:      ${(m.toAddress || []).map((t) => t.address || t).join(",")}`);
-    console.log(`date:    ${m.date ? new Date(Number(m.date)).toISOString() : ""}`);
-    console.log(`subject: ${m.subject}\n`);
-    console.log(body.includes("<") ? strip(body) : body);
+    // The free EU plan has no single-message GET (404 INVALID_METHOD), so pull
+    // the recent window and pick the match out of it.
+    const list = await messagesView(id, 0, 200);
+    const m = list.find((x) => String(x.messageId) === String(rest[0]));
+    if (!m) { console.log("not found in the most recent 200 messages"); return; }
+    console.log(`from:    ${m.fromAddress || m.sender || "?"}`);
+    console.log(`to:      ${decodeHtml(m.toAddress || "")}`);
+    console.log(`date:    ${m.sentDateInGMT ? new Date(Number(m.sentDateInGMT)).toISOString() : ""}`);
+    console.log(`subject: ${decodeHtml(m.subject || "")}`);
+    console.log(`\n${decodeHtml(m.summary || "(no preview)")}`);
+    console.log(`\n(full body needs Zoho Mail Lite: the free plan's API returns a preview only)`);
     return;
   }
 
   if (cmd === "search") {
-    const q = encodeURIComponent(rest.join(" "));
-    const data = await api(`/accounts/${id}/messages/search?query=${q}&start=0&limit=20`);
-    const list = Array.isArray(data) ? data : (data?.messages || []);
-    for (const m of list) console.log(`${m.messageId}  ${m.subject}`);
-    if (!list.length) console.log("(no matches)");
+    const q = rest.join(" ").toLowerCase();
+    if (!q) throw new Error("usage: search <text>");
+    const list = await messagesView(id, 0, 200);
+    const hits = list.filter((m) =>
+      `${m.subject} ${m.summary} ${m.fromAddress} ${m.sender}`.toLowerCase().includes(q));
+    for (const m of hits) {
+      console.log(`${m.messageId}  ${decodeHtml(m.subject || "")}  <-  ${m.fromAddress || m.sender}`);
+    }
+    if (!hits.length) console.log("(no matches in the most recent 200 messages)");
     return;
   }
 
