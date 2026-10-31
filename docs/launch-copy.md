@@ -1,52 +1,112 @@
-# Launch copy — ready to post
+# Launch copy — Paydlux
 
-## Show HN / Reddit r/crypto title
-> Show HN: AgentVault – on-chain spending caps and human approval for AI agents
+Everything below is true as of 31 Oct 2026 and matches what the code actually
+does. Do not post a claim that isn't in this file. The previous version of this
+file described the old EVM build (AgentVault, 61 contract tests, Merkle
+batching) — that is no longer what we ship, so it was replaced rather than
+edited.
 
-## Body (HN)
-AI agents are starting to pay for APIs over HTTP (x402: HTTP 402 + USDC). The
-standard integration gives the agent a raw wallet: no spend cap, no human
-approval, no refund path. In May an agent wallet was drained of ~$150-200k via
-prompt injection; the x402 SDK itself shipped without a default spend cap until
-Aug 2026.
+Verified today:
 
-We put the guardrails on-chain instead:
+- `npx tsx stellar/demo.ts` → 12 checks, `ALL CHECKS PASSED`, live Stellar testnet
+- `npm install @paydlux/agent` → installs, imports, `found 0 vulnerabilities`
+- https://paydlux.com → live, matches the local build byte-for-byte
+- https://github.com/Mesher589/paydlux → public
 
-- Mandates: a human registers per-call / daily / total caps + payee allowlist +
-  expiry. The agent key physically cannot exceed them.
-- Request-bound signatures: each payment proof is bound to the exact HTTP
-  request (method, URI, body hash, nonce). arXiv 2605.30998 showed captured
-  proofs being replayed against other resources at up to 100% leakage; our
-  fuzz tests (4x512 runs) prove substitution reverts.
-- Human-in-the-loop: mandates can require a person to sign the exact payment
-  before settlement. Web portal shows amount / what / who. Approvals are
-  single-use and payment-bound.
-- Escrow with proof-of-delivery, and Merkle-batched settlement at ~$0.00005
-  per payment so sub-cent micropayments work.
+---
 
-61 contract tests, MIT, no real funds. Local demo: `node demo-approval.ts`
-opens a human approval portal at :4022.
+## X / Twitter — main post (paste with the clip)
 
-Repo: https://github.com/Mesher589/agentvault
+> AI agents are now paying for APIs over HTTP 402. Most of them are handed a raw
+> wallet to do it: no ceiling, no human, no refund path.
+>
+> Paydlux puts the guardrails on the chain instead. A human sets a ceiling. The
+> agent's key physically cannot exceed it. Big buys wait for a person to click
+> Approve. Deny, and nothing moves — not even the fee.
+>
+> 12 checks pass on Stellar testnet. `npm install @paydlux/agent`
+>
+> https://paydlux.com
+
+Alt text for the clip: *Approval desk showing a parked payment; clicking Approve
+settles it on-chain, clicking Deny moves nothing.*
+
+Clip: `brand/deliverables/approval-flow.mp4` (998x450, 4.2s) — X prefers MP4.
+`approval-flow-x.gif` is the fallback if the upload is rejected.
+
+## X — thread, 4 posts
+
+1/ An AI agent can buy an API call today. The standard way is to hand it a
+wallet key. That key has no ceiling, no approval step, and no way back.
+
+2/ Paydlux: a human registers a mandate — max per payment, daily budget, who may
+be paid, when it expires. It lives on-chain. The agent's key is not allowed to
+sign anything outside it. The ledger rejects it, not our server.
+
+3/ Bigger buys park until a person decides. A web page shows the amount, what it
+buys, and who gets paid. Approve and it settles. Deny and nothing moves — not
+even the transaction fee. Replaying a payment is refused. Tampering with an
+amount is refused.
+
+4/ It runs on Stellar, so escrow is native multisig and fees are fractions of a
+cent. `npm install @paydlux/agent`, MIT, 12 checks pass on testnet, no real
+funds at risk. https://paydlux.com
+
+## Show HN
+
+Title: **Show HN: Paydlux – on-chain spending caps and human approval for AI agents**
+
+Body:
+
+> AI agents are starting to pay for APIs over HTTP (x402: HTTP 402 + USDC). The
+> usual integration hands the agent a raw wallet key: no spend cap, no human
+> approval, no refund path.
+>
+> We put the guardrails on-chain instead of in the SDK:
+>
+> - **Mandates.** A human registers a per-payment ceiling, a daily budget, a
+>   payee allowlist and an expiry. The agent key cannot sign outside them; the
+>   ledger refuses, so a prompt-injected agent cannot overspend by construction.
+> - **Human approval.** Above a threshold the payment parks. A web page shows
+>   amount / what / who. Approve settles it; deny moves nothing, not even a fee.
+> - **No replay.** A mandate is consumed on use, and we check the transaction
+>   actually exists on-chain rather than trusting a local record.
+> - **Escrow.** Funds sit in a 2-of-2 multisig vault. Release needs the agent
+>   key *and* the human key.
+>
+> We chose Stellar over an EVM chain because escrow is native multisig, USDC is
+> real there, and fees are fractions of a cent.
+>
+> Honest limits: this is a working prototype on Stellar's public testnet, not a
+> product. No audit. No customer funds. The approval key is still a file on a
+> laptop, which is the next thing we are fixing.
+>
+> `npm install @paydlux/agent` · MIT ·
+> https://github.com/Mesher589/paydlux
 
 ## x402 community / Discord one-liner
-> Built mandate-enforced payments on top of the x402 flow: on-chain spending
-> caps, request-bound proofs (kills the replay class from arXiv 2605.30998),
-> human-approval portal, escrow + Merkle batch settlement (~$0.00005/tx).
-> MIT, 61 tests: https://github.com/Mesher589/agentvault — feedback welcome.
 
-## X/Twitter thread (3 posts)
-1/ AI agents can now pay for APIs with USDC (x402). Nobody should be giving an
-agent a raw wallet. We built the guardrails into the chain itself.
-2/ A human sets the rules on-chain: max per call, per day, total, who gets
-paid. A prompt-injected agent literally cannot overspend. Every proof is
-bound to the exact request it pays for — captured proofs can't be replayed.
-3/ And for big buys, a human signs the exact payment in a web portal before
-anything moves. MIT + 61 tests: https://github.com/Mesher589/agentvault
+> Built mandate-enforced payments on the x402 flow: on-chain spending caps,
+> native multisig escrow, human-approval portal, replay refused by checking the
+> tx exists on-chain. Stellar, MIT, 12 checks on testnet:
+> https://github.com/Mesher589/paydlux — feedback welcome.
 
-## Where to post (needs the owner's accounts — I can't post without them)
-- news.ycombinator.com (Show HN) — best reach for this audience
-- x402 Discord / Linux Foundation channel
-- r/CryptoCurrency + r/base
-- X/Twitter from the owner's account
-- Dev.to / Mirror.xyz long-form version of the README
+---
+
+## Where to post
+
+| Channel | Who can post | Note |
+|---|---|---|
+| X @paydlux | owner in a browser, or API once registered | first stop — we own the account |
+| news.ycombinator.com (Show HN) | owner | best reach for this audience |
+| x402 Discord / Linux Foundation | owner | the actual buyer audience |
+| r/stellar, r/CryptoCurrency | owner | r/stellar is far friendlier than r/crypto |
+| Dev.to / long-form | owner | the README is already close to this |
+
+## Claims that are NOT true yet — never post these
+
+- "audited" — no audit has happened
+- "handles real money today" — testnet only; mainnet is untested
+- "hosted demo" — the demo runs on a laptop, not a server
+- "phone approval" — not built; the approver key is a file on disk
+- any customer count, revenue, or savings figure — we have none
