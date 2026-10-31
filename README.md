@@ -54,7 +54,7 @@ The vault needs two signatures. If both keys sit in one process, that is really
 one key. So the approval half is split off:
 
 ```bash
-npx tsx stellar/phone-check.ts      # seller alone cannot pay; phone alone cannot pay
+npx tsx stellar/phone-check.ts      # 17 checks: seller alone cannot pay; phone alone cannot pay
 npx tsx stellar/e2e-phone.ts        # desk with no approver key still settles
 ```
 
