@@ -92,8 +92,15 @@ Still open, and worth reporting if you find it worse than described:
 - The payload travels as text. It is integrity-checked by hash, but not
   confidential, and there is no channel binding between the desk and the device
   that answers it.
-- The desk is plain HTTP on a throwaway tunnel. Until it runs behind TLS on a
-  domain you control, the human is signing over a connection they cannot verify.
+- ~~The desk is plain HTTP on a throwaway tunnel.~~ Closed: `story.ts --tls`
+  serves the desk over `https://desk.paydlux.com` through a named Cloudflare
+  tunnel, with a real certificate, HSTS, plain HTTP 301'd away, the desk bound to
+  `127.0.0.1` only, and a `Host` pin so the local port cannot be driven directly
+  to skip TLS. `stellar/tls-check.ts` asserts all of it. A desk configured with a
+  public hostname also refuses to start without a portal key.
+  Still open on that path: the portal key travels in the URL of the link the
+  human opens, so it lands in browser history and any proxy log that sees the
+  request line. Rotating it per session limits the damage; it still cannot spend.
 
 There is still **no audit** and **no real money**. Do not put real funds
 anywhere near this.

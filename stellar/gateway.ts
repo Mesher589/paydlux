@@ -47,6 +47,8 @@ export type GatewayConfig = {
   deskPort?: number;
   /** gate the approval portal behind a single unguessable link */
   portalKey?: string;
+  /** hostname the desk is publicly served on; pins the Host header. See DeskConfig. */
+  publicHost?: string;
 };
 
 export type PaymentProof = {
@@ -77,6 +79,7 @@ export class Gateway {
       port: cfg.deskPort ?? 4022,
       portalKey: cfg.portalKey,
       split: cfg.split,
+      publicHost: cfg.publicHost,
     });
   }
 
