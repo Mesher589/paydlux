@@ -12,3 +12,4 @@ site/
 paydlux-vault.json
 *.vault.json
 dist/
+paydlux-fund-wallet.json
