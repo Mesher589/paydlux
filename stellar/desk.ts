@@ -31,29 +31,38 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = join(HERE, "..", "phone-app");
 const PORTAL_DIR = join(HERE, "..", "portal-app");
-const staticCache = new Map<string, string>();
+const staticCache = new Map<string, string | Buffer>();
 
 /**
  * Static files are read on each process start rather than bundled, so the desk
  * and its front ends can never drift apart. The name is stripped to [a-z.]
  * before it touches a path, so a request can't walk out of the directory.
+ *
+ * PNGs are returned as bytes: reading an image as utf8 text replaces every
+ * invalid sequence with U+FFFD and ships a corrupt icon to the phone.
  */
-function readStatic(dir: string, name: string, label: string): string {
-  const safe = name.replace(/[^a-z.]/g, "");
+function readStatic(dir: string, name: string, label: string): string | Buffer | null {
+  const safe = name.replace(/[^a-z0-9._-]/g, "");
   const hit = staticCache.get(dir + "/" + safe);
   if (hit) return hit;
-  let text: string;
+  let text: string | Buffer;
   try {
-    text = readFileSync(join(dir, safe), "utf8");
+    text = safe.endsWith(".png")
+      ? readFileSync(join(dir, safe))
+      : readFileSync(join(dir, safe), "utf8");
   } catch {
-    // A package install that shipped without the folder should say so instead of
-    // throwing out of the request handler.
-    throw new Error(label + " is missing from this install (expected " + join(dir, safe) + ")");
+    // A missing file is a 404, not a crash. Throwing here took the whole desk
+    // down over one bad URL: the request handler is not a place to raise.
+    return null;
   }
   staticCache.set(dir + "/" + safe, text);
   return text;
 }
 const readAppFile = (name: string) => readStatic(APP_DIR, name, "approver app");
+const notFound = (res: ServerResponse) => {
+  res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+  res.end("404");
+};
 const readPortalFile = (name: string) => readStatic(PORTAL_DIR, name, "portal app");
 
 /** A portal link is a capability: whoever holds it can approve. So it is long,
@@ -318,13 +327,48 @@ export class ApprovalDesk {
     return rec;
   }
 
+  /**
+   * The human said no.
+   *
+   * `awaiting_phone` is a valid state to deny from. Opening the phone link
+   * builds the challenge on the spot (so a human needs one tap, not two), which
+   * means the first thing a person sees on their phone is already
+   * `awaiting_phone` — refusing to deny from that state left the Reject button
+   * dead, which was verified on live testnet. Denying is always allowed up to
+   * the point the transaction is submitted; after that it is too late.
+   */
   deny(id: string, reason = "denied by the approver") {
     const rec = this.records.get(id);
     if (!rec) throw new Error("unknown handle " + id);
-    if (rec.status !== "pending") throw new Error(`already ${rec.status}`);
+    if (rec.status === "settled") throw new Error("already settled — the money has moved, it cannot be denied");
+    if (rec.status === "denied") return rec;          // idempotent: the app may retry
     rec.status = "denied";
     rec.reason = reason;
+    rec.challenge = undefined;                        // the phone's answer is now worthless
+    rec.signedXdr = undefined;
     return rec;
+  }
+
+  /**
+   * What the phone app is allowed to see. Never the paid `content` — that is
+   * what the buyer has not paid for yet — and never the raw challenge XDR,
+   * which the app fetches per item so the desk can re-check the binding.
+   */
+  queue(): Record<string, unknown>[] {
+    return this.list().map((r) => ({
+      id: r.id,
+      at: r.at,
+      uri: r.uri,
+      price: r.price,
+      status: r.status,
+      reason: r.reason,
+      tx: r.tx,
+      /** what the buyer says it wants. Agent-controlled text: render as text. */
+      wants: (r.body ?? "").slice(0, 200),
+      token: this.cfg.vault.token.getCode(),
+      expiresAt: r.challenge?.summary.expiresAt,
+      hash: r.challenge?.hash,
+    }));
   }
 
   /** Serve the pending list as JSON (the portal polls this). */
@@ -392,6 +436,64 @@ export class ApprovalDesk {
         res.end("ok");
         return;
       }
+      // The approver app's static shell is served BEFORE the key gate, on
+      // purpose. It is index.html, app.js, xdr.js, the icons and the manifest:
+      // client code with no secret and no payment data in it, the same as the
+      // portal's own portal.js. Serving it unauthenticated is what lets a phone
+      // install it to a home screen from a plain URL, with the seller's key
+      // arriving separately in the link. Everything that carries data or moves
+      // money — /queue, /challenge, /list, /approve, /deny, /signed — stays
+      // behind the gate below.
+      //
+      // The app uses relative script srcs, so it must be served from a
+      // directory URL: /phone without the slash would resolve app.js to /app.js.
+      if (url.pathname === "/phone") {
+        res.writeHead(302, { location: "/phone/" + url.search });
+        res.end();
+        return;
+      }
+      if (url.pathname === "/phone/" || url.pathname === "/phone/index.html") {
+        res.writeHead(200, {
+          "content-type": "text/html; charset=utf-8",
+          // The approver key goes in IndexedDB behind a non-extractable
+          // CryptoKey; an injected script is the realistic threat, so lock the
+          // origin. No inline script on the page: app.js and xdr.js are
+          // separate files, so script-src 'self' actually holds. connect-src
+          // 'self' is what stops the app talking anywhere but the desk that
+          // served it.
+          "content-security-policy":
+            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+            "img-src 'self' data:; connect-src 'self'; base-uri 'none'; " +
+            "form-action 'none'; frame-ancestors 'none'",
+          "referrer-policy": "no-referrer",
+          "x-content-type-options": "nosniff",
+          "cache-control": "no-store",
+        });
+        const page = readAppFile("index.html");
+        if (page === null) return notFound(res);
+        res.end(page);
+        return;
+      }
+      if (url.pathname.startsWith("/phone/")) {
+        const file = url.pathname.slice("/phone/".length);
+        // Icons and the manifest are part of installing the app to a home
+        // screen, so they are served alongside the code. Names are still
+        // stripped to a safe set before they touch a path.
+        if (!/^[a-z0-9_-]+\.(js|png|webmanifest)$/.test(file)) return notFound(res);
+        const type = file.endsWith(".png") ? "image/png"
+          : file.endsWith(".webmanifest") ? "application/manifest+json"
+          : "text/javascript";
+        const body = readAppFile(file);
+        if (body === null) return notFound(res);
+        res.writeHead(200, {
+          "content-type": type + (file.endsWith(".png") ? "" : "; charset=utf-8"),
+          "cache-control": "no-store",
+          "x-content-type-options": "nosniff",
+        });
+        res.end(body);
+        return;
+      }
+
       // A public demo link must not be an open approval button. If a portalKey
       // is configured, every route needs it, or the desk answers 403.
       //
@@ -428,56 +530,20 @@ export class ApprovalDesk {
         // approval page and an injected string can't become executable script.
         if (url.pathname === "/portal.js" || url.pathname === "/portal.css") {
           const file = url.pathname.slice(1);
+          const body = readPortalFile(file);
+          if (body === null) return notFound(res);
           res.writeHead(200, {
             "content-type": (file.endsWith(".css") ? "text/css" : "text/javascript") + "; charset=utf-8",
             "x-content-type-options": "nosniff",
           });
-          res.end(readPortalFile(file));
+          res.end(body);
           return;
         }
         if (url.pathname === "/list") return send(200, this.list());
 
-        // The approver app. Served from the desk so the human opens one link on
-        // their phone instead of pasting XDR around. The app itself makes no
-        // requests after loading, and the portalKey gate above already covers
-        // these paths: without the key, nothing here is reachable.
-        // The app uses relative script srcs, so it must be served from a
-        // directory URL. /phone without the slash would resolve app.js to
-        // /app.js, so send it to the canonical path with the key intact.
-        if (url.pathname === "/phone") {
-          res.writeHead(302, { location: "/phone/" + url.search });
-          res.end();
-          return;
-        }
-        if (url.pathname === "/phone/" || url.pathname === "/phone/index.html") {
-          res.writeHead(200, {
-            "content-type": "text/html; charset=utf-8",
-            // The key lives in IndexedDB behind a non-extractable CryptoKey;
-            // an injected script is the realistic threat, so lock the origin.
-            // No inline script on the page: app.js and xdr.js are separate
-            // files, so script-src 'self' actually holds. connect-src 'self' is
-            // what stops the app talking anywhere but the desk that served it.
-            "content-security-policy":
-              "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
-              "img-src 'self' data:; connect-src 'self'; base-uri 'none'; " +
-              "form-action 'none'; frame-ancestors 'none'",
-            "referrer-policy": "no-referrer",
-            "x-content-type-options": "nosniff",
-          });
-          res.end(readAppFile("index.html"));
-          return;
-        }
-        if (url.pathname.startsWith("/phone/")) {
-          const file = url.pathname.slice("/phone/".length);
-          if (!/^[a-z]+\.(js|css)$/.test(file)) return send(404, { error: "not found" });
-          res.writeHead(200, {
-            "content-type": (file.endsWith(".css") ? "text/css" : "text/javascript") + "; charset=utf-8",
-            "cache-control": "no-store",
-            "x-content-type-options": "nosniff",
-          });
-          res.end(readAppFile(file));
-          return;
-        }
+        // The approver app's list view. Key-gated like everything else, and it
+        // carries no paid content and no challenge XDR.
+        if (url.pathname === "/queue") return send(200, this.queue());
         // The app fetches the pending transaction by handle rather than asking
         // the human to paste 400 characters of base64 on a phone.
         const ch = url.pathname.match(/^\/challenge\/([\w-]+)$/);
@@ -492,6 +558,11 @@ export class ApprovalDesk {
           return send(200, {
             id: rec.id, network: rec.challenge.network,
             hash: rec.challenge.hash, xdr: rec.challenge.xdr,
+            // what the human is being asked to read. Agent-controlled text: the
+            // app renders it as text, never as markup.
+            wants: (rec.body ?? "").slice(0, 200),
+            memo: rec.challenge.summary.memo ?? "",
+            expiresAt: rec.challenge.summary.expiresAt,
           });
         }
 

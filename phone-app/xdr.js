@@ -172,6 +172,49 @@
    * The public half is captured at enrolment and stored separately.
    */
   async function importSecretSeed(seedStr) {
+    const pkcs8 = pkcs8FromSeed(seedStr);
+    const privateKey = await crypto.subtle.importKey(
+      "pkcs8", pkcs8, { name: "Ed25519" }, false, ["sign"]);
+    pkcs8.fill(0);                      // drop the plaintext copy as soon as we can
+    return privateKey;
+  }
+
+  /**
+   * Import a seed AND read back its public half, in one step.
+   *
+   * A non-extractable key cannot be asked for its own public bytes, and the
+   * approver app needs those bytes to add its signature to a transaction. So the
+   * seed is imported a second time as an extractable key purely to export the
+   * 32-byte public half; that temporary key is discarded immediately and never
+   * stored. What the app keeps is the non-extractable key plus a public value
+   * that is public anyway.
+   *
+   * The export goes through JWK rather than "raw": WebCrypto defines raw only for
+   * OKP *public* keys, so exporting raw from a private key is refused (verified
+   * on Node 26). The JWK form of an Ed25519 private key carries the public half
+   * in `x`, base64url.
+   */
+  async function importSecretSeedPair(seedStr) {
+    const key = await importSecretSeed(seedStr);
+    const tmp = await crypto.subtle.importKey(
+      "pkcs8", pkcs8FromSeed(seedStr), { name: "Ed25519" }, true, ["sign"]);
+    let pub;
+    try {
+      const jwk = await crypto.subtle.exportKey("jwk", tmp);
+      pub = base64UrlToBytes(jwk.x);
+    } catch {
+      pub = new Uint8Array(await crypto.subtle.exportKey("raw", tmp));
+    }
+    if (pub.length !== 32) throw new Error("unexpected public key length " + pub.length);
+    return { key, pub, address: encodeAccountEd25519(pub) };
+  }
+
+  function base64UrlToBytes(s) {
+    if (typeof s !== "string" || !s) throw new Error("missing public key in the exported key");
+    return base64ToBytes(s.replace(/-/g, "+").replace(/_/g, "/") + "==".slice(0, (4 - s.length % 4) % 4));
+  }
+
+  function pkcs8FromSeed(seedStr) {
     const seed = decodeSecretSeed(seedStr);
     const pkcs8 = new Uint8Array(16 + 32);
     pkcs8.set([
@@ -179,10 +222,7 @@
       0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
     ], 0);
     pkcs8.set(seed, 16);
-    const privateKey = await crypto.subtle.importKey(
-      "pkcs8", pkcs8, { name: "Ed25519" }, false, ["sign"]);
-    seed.fill(0);                       // drop the plaintext copy as soon as we can
-    return privateKey;
+    return pkcs8;
   }
 
   // ------------------------------------------------------------------ parsing
@@ -429,7 +469,7 @@
     parseEnvelope, transactionHash, addSignature, formatAmount,
     hex, hexToBytes, signaturePreimage,
     encodeAccountEd25519, decodeAccountEd25519,
-    decodeSecretSeed, encodeSecretSeed, importSecretSeed,
+    decodeSecretSeed, encodeSecretSeed, importSecretSeed, importSecretSeedPair,
     NETWORK_ID, crc16Xmodem,
     ENVELOPE_TYPE_TX, OP_PAYMENT, STROOPS,
   };

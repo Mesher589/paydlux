@@ -78,10 +78,19 @@ const main = async () => {
   check(challenge.status === 403, `/challenge without the key -> ${challenge.status}`);
 
   step("5. the approver app over TLS keeps its CSP");
+  // The shell is public on purpose (html, js, icons): it holds no secret and no
+  // payment data, and it has to load before the key does so a phone can install
+  // it. The routes above — /list, /challenge, /queue, /signed — are the ones
+  // that carry data or move money, and those stay gated.
   const app = await fetch(`https://${PUBLIC_HOST}/phone/`);
-  check(app.status === 403, `app without the key -> ${app.status}`);
+  check(app.status === 200, `app shell over TLS -> ${app.status}`);
+  const csp = app.headers.get("content-security-policy") ?? "";
+  check(/script-src 'self'/.test(csp) && /connect-src 'self'/.test(csp),
+    `CSP over TLS pins the app to its own origin: ${csp.slice(0, 60)}…`);
   const appjs = await fetch(`https://${PUBLIC_HOST}/phone/app.js`);
-  check(appjs.status === 403, `app.js without the key -> ${appjs.status}`);
+  check(appjs.status === 200, `app.js over TLS -> ${appjs.status}`);
+  const appSrc = await appjs.text();
+  check(!/S[A-Z2-7]{30,}/.test(appSrc), "the served app code contains no seed");
 
   // Positive half: with the key the app must actually load over TLS. Pass the
   // key in from the running story: PAYDLUX_PORTAL_KEY=... npx tsx ...
