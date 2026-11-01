@@ -320,9 +320,13 @@ export class ApprovalDesk {
       const res = await submitApproved(signedXdr, this.cfg.vault.network, this.cfg.vault.horizon);
       rec.status = "settled";
       rec.tx = res.hash;
+      // The money moving is the one event a seller should never have to
+      // discover by refreshing a page.
+      console.log(`[desk] ${rec.id} PAID ${rec.price} ${this.cfg.vault.token.getCode()} — ledger ${rec.tx}`);
     } catch (e) {
       rec.status = "failed";
       rec.reason = (e as Error).message;
+      console.log(`[desk] ${rec.id} failed on the ledger: ${rec.reason}`);
     }
     return rec;
   }
