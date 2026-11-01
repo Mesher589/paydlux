@@ -30,7 +30,10 @@ export type PayResponse<T = string> = {
   tx?: string;
   /** set when a human has to approve */
   handle?: string;
+  /** where a human approves (the seller's desk) */
   desk?: string;
+  /** where THIS buyer polls for the answer (the gateway, no key needed) */
+  statusUrl?: string;
   reason?: string;
   requirements?: any;
 };
@@ -71,8 +74,15 @@ export class PaydluxAgent {
         headers: { [PAY_HEADER]: JSON.stringify({ intent }) },
       });
       const j: any = await parked.json().catch(() => ({}));
-      return { ok: false, status: parked.status, handle: j.handle, desk: j.desk, requirements: reqs,
-        reason: "a human has to approve this payment" };
+      // A 200 here means the human already approved this request — the seller
+      // serves the content on the retry. Reporting "needs approval" in that case
+      // would leave a buyer polling forever for a payment that is already paid.
+      if (parked.status === 200) {
+        return { ok: true, status: 200, data: (j.data ?? j) as T, tx: j.tx };
+      }
+      return { ok: false, status: parked.status, handle: j.handle, desk: j.desk,
+        statusUrl: j.statusUrl, requirements: reqs,
+        reason: j.reason ?? "a human has to approve this payment" };
     }
 
     if (!opts.mandate) {
@@ -112,16 +122,36 @@ export class PaydluxAgent {
   /**
    * Wait for a human to decide on an approval-mode payment.
    * Returns the settled record, or null on deny/timeout.
+   *
+   * Pass the response you got from get() — that is the whole point of the
+   * handle. It carries the exact URL to poll. Poll the GATEWAY, never the desk:
+   * the desk is the human's surface, gated behind a portal key, and whoever
+   * holds that key can approve. A buyer must never have it. The gateway's
+   * status route answers for a handle it handed out and reveals only what the
+   * buyer already knows (id, price, status) plus the tx hash once it settles.
    */
-  async waitForApproval(desk: string, handle: string) {
+  async waitForApproval(res: PayResponse | string, handle?: string) {
     const f = this.cfg.fetch ?? fetch;
+    const url = typeof res === "string"
+      ? `${res.replace(/\/+$/, "")}/pay/status?handle=${encodeURIComponent(handle ?? "")}`
+      : (res.statusUrl ?? `${res.desk?.replace(/\/+$/, "")}/list`);
+    const want = typeof res === "string" ? handle : res.handle;
+    if (!want) throw new Error("nothing to wait on: this response has no payment handle");
     const deadline = Date.now() + this.cfg.approvalTimeoutMs!;
     while (Date.now() < deadline) {
-      const r = await f(`${desk}/list`).then((x) => x.json()).catch(() => [] as any[]);
-      const rec = (r as any[]).find((x) => x.id === handle);
-      if (rec && rec.status === "settled") return rec;
-      if (rec && (rec.status === "denied" || rec.status === "failed")) return rec;
-      await new Promise((res) => setTimeout(res, this.cfg.pollMs));
+      const r = await f(url).catch(() => null);
+      if (!r?.ok) {
+        // A desk /list fallback needs the portal key, so it 403s for a buyer.
+        // That is correct behaviour, not a bug to work around.
+        if (url.endsWith("/list")) throw new Error(
+          "cannot poll the desk for status — pass the response from get(), which carries statusUrl");
+        await new Promise((res2) => setTimeout(res2, this.cfg.pollMs));
+        continue;
+      }
+      const rec: any = await r.json().catch(() => null);
+      const found = Array.isArray(rec) ? rec.find((x) => x.id === want) : rec;
+      if (found && found.status !== "pending" && found.status !== "awaiting_phone") return found;
+      await new Promise((res2) => setTimeout(res2, this.cfg.pollMs));
     }
     return null;
   }

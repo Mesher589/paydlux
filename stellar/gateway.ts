@@ -13,6 +13,7 @@
 //
 // Either way the agent's key alone can never move money: threshold is 2.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createHash } from "node:crypto";
 import { Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
 import { StellarVault, StellarTxError, hex, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
 import { ApprovalDesk, type DeskStore } from "./desk.ts";
@@ -25,6 +26,11 @@ export type Route = {
   mode: "preauth" | "approval";
   /** seconds the seller's content stays reserved while a human decides */
   holdSeconds?: number;
+  /**
+   * How long one approved payment keeps buying this route. Defaults to
+   * holdSeconds. Set it to 0 to make every single call cost its own approval.
+   */
+  collectSeconds?: number;
 };
 
 export type GatewayConfig = {
@@ -113,20 +119,36 @@ export class Gateway {
     return m;
   }
 
+  /**
+   * This gateway's own externally visible base URL, as the client sees it.
+   * Behind a TLS proxy (a Cloudflare tunnel) the Host header is the public name
+   * and X-Forwarded-Proto says https, so links handed to a buyer point at the
+   * address they can actually reach instead of a loopback port.
+   */
+  private selfUrl(req: IncomingMessage) {
+    const proto = (req.headers["x-forwarded-proto"] ?? "").toString().split(",")[0].trim()
+      || (this.cfg.publicHost ? "https" : "http");
+    const host = req.headers.host ?? "127.0.0.1";
+    return `${proto}://${host}`;
+  }
+
   /** The intent must be signed by a real agent key on the vault. */
   private verifyIntent(intent: { payload: string; signature: string }) {
-    if (!intent?.payload || !intent?.signature) return false;
+    if (!intent?.payload || !intent?.signature) return null;
     const [url, amount, vault] = intent.payload.split("|");
-    if (vault !== this.cfg.vault.address) return false;
-    if (Number(amount) <= 0) return false;
+    if (vault !== this.cfg.vault.address) return null;
+    if (Number(amount) <= 0) return null;
     const age = Date.now() - Number(intent.payload.split("|").at(-1));
-    if (!Number.isFinite(age) || age > 5 * 60 * 1000) return false;
+    if (!Number.isFinite(age) || age > 5 * 60 * 1000) return null;
     const msg = Buffer.from(intent.payload);
     const sig = Buffer.from(intent.signature, "base64");
     for (const s of this.agentKeys) {
-      try { if (Keypair.fromPublicKey(s).verify(msg, sig)) return true; } catch { /* keep going */ }
+      // Returning WHICH key signed it matters downstream: the dedupe key is
+      // built from the buyer's identity, so two different agents asking for the
+      // same resource must not share one queue entry.
+      try { if (Keypair.fromPublicKey(s).verify(msg, sig)) return s; } catch { /* keep going */ }
     }
-    return false;
+    return null;
   }
 
   /** Keys allowed to place approval requests. */
@@ -199,8 +221,21 @@ export class Gateway {
       if (uri === "/pay/status") {
         const handle = new URL(req.url!, "http://x").searchParams.get("handle");
         const rec = handle ? this.desk.get(handle) : null;
+        // A projection, never the record. The desk record carries `content` —
+        // the payload the seller only ships once money has landed. Handing the
+        // whole object to this ungated route would let anyone holding a handle
+        // read the paid content while the payment still sits pending, which
+        // defeats the entire product. The buyer already knows the id, price and
+        // uri; the tx hash is theirs once it settles. Nothing else goes out.
+        const safe = rec
+          ? {
+              id: rec.id, status: rec.status, price: rec.price, uri: rec.uri,
+              ...(rec.tx ? { tx: rec.tx } : {}),
+              ...(rec.reason ? { reason: rec.reason } : {}),
+            }
+          : { error: "unknown handle" };
         res.writeHead(rec ? 200 : 404, { "content-type": "application/json" });
-        res.end(JSON.stringify(rec ?? { error: "unknown handle" }));
+        res.end(JSON.stringify(safe));
         return;
       }
 
@@ -231,19 +266,79 @@ export class Gateway {
           res.end(JSON.stringify({ error: "payment_invalid", reason: "approval mode needs a signed intent" }));
           return;
         }
-        if (!this.verifyIntent(proof.intent)) {
+        const signer = this.verifyIntent(proof.intent);
+        if (!signer) {
           res.writeHead(402, { [PAY_HEADER]: JSON.stringify(this.requirements(uri)) });
           res.end(JSON.stringify({ error: "payment_invalid", reason: "intent signature is not from the agent key" }));
           return;
         }
-        const handle = this.desk.enqueue(uri, r.price, body, getContent(uri));
+
+        // One request per buyer + body + price, not one per HTTP call. A buyer
+        // retries by design (that is how they wait for a human), so without this
+        // each retry parks a fresh payment: the human approves twice, money moves
+        // twice, and the buyer still has no content. The signer is in the key so
+        // two different agents never share one queue entry.
+        const key = createHash("sha256")
+          .update(`${signer}|${uri}|${r.price}|${body}`).digest("hex");
+        const hit = this.desk.findByKey(key);
+
+        if (hit) {
+          // Already paid: hand over the content. This is the whole point of the
+          // retry. It stays collectable for the route's hold window, then a
+          // fresh payment is required — otherwise one approval would buy the
+          // resource forever, which is not what the human agreed to.
+          if (hit.status === "settled") {
+            const windowMs = (r.collectSeconds ?? r.holdSeconds ?? 3600) * 1000;
+            if (Date.now() - hit.at <= windowMs) {
+              res.writeHead(200, {
+                "content-type": "application/json",
+                "x-payment-response": JSON.stringify({ tx: hit.tx }),
+              });
+              res.end(JSON.stringify({ data: getContent(uri), tx: hit.tx }));
+              return;
+            }
+          }
+          // A human said no. Do not silently re-open the same request and nag
+          // them with it: the buyer has to change the request to ask again.
+          if (hit.status === "denied") {
+            res.writeHead(402, { [PAY_HEADER]: JSON.stringify(this.requirements(uri)) });
+            res.end(JSON.stringify({
+              error: "payment_denied", handle: hit.id,
+              reason: hit.reason ?? "denied by the approver",
+            }));
+            return;
+          }
+          // pending / awaiting_phone: reuse the existing handle.
+          // failed: the human approved but the ledger refused, so no money moved
+          // and the buyer is not at fault — park a fresh one below.
+          if (hit.status === "pending" || hit.status === "awaiting_phone") {
+            const deskUrl = this.cfg.deskUrl
+              ?? (this.cfg.publicHost ? `https://${this.cfg.publicHost}` : `http://127.0.0.1:${this.cfg.deskPort ?? 4022}`);
+            res.writeHead(202, { "content-type": "application/json", "x-payment-hold": hit.id });
+            res.end(JSON.stringify({
+              status: "awaiting_approval", handle: hit.id, desk: deskUrl,
+              statusUrl: `${this.selfUrl(req)}/pay/status?handle=${encodeURIComponent(hit.id)}`,
+            }));
+            return;
+          }
+        }
+
+        const handle = this.desk.enqueue(uri, r.price, body, getContent(uri), key);
+
         res.writeHead(202, { "content-type": "application/json", "x-payment-hold": handle });
         // The buyer needs to know where a human approves. Loopback is only
         // right when both sides are on one machine; anything real sets deskUrl
         // (or publicHost) so this points at the https desk.
         const deskUrl = this.cfg.deskUrl
           ?? (this.cfg.publicHost ? `https://${this.cfg.publicHost}` : `http://127.0.0.1:${this.cfg.deskPort ?? 4022}`);
-        res.end(JSON.stringify({ status: "awaiting_approval", handle, desk: deskUrl }));
+        // ...and where to poll for the answer. That is THIS gateway, not the
+        // desk: the desk is the human's surface and is gated behind a portal key
+        // the buyer must never hold. Without this the buyer has no way to learn
+        // that a payment was approved and waits until timeout.
+        res.end(JSON.stringify({
+          status: "awaiting_approval", handle, desk: deskUrl,
+          statusUrl: `${this.selfUrl(req)}/pay/status?handle=${encodeURIComponent(handle)}`,
+        }));
         return;
       }
 
