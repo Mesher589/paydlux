@@ -473,6 +473,27 @@ export class ApprovalDesk {
 
         const m = url.pathname.match(/^\/(approve|deny|signed)\/([\w-]+)$/);
         if (m && req.method === "POST") {
+          // These routes move money, so they must not be reachable from another
+          // page. A cross-origin fetch POST is a CORS *simple request*: no
+          // preflight, so the attacker's page never sees the reply but the
+          // approval still happens. Verified end to end: a page on another port
+          // settled a parked payment and paid the seller. Browsers always send
+          // Origin on POST and Sec-Fetch-Site on every request, so checking both
+          // closes that path while leaving local automation (curl, tests, the
+          // phone app on its own origin) alone.
+          const origin = String(req.headers.origin ?? "");
+          if (origin) {
+            const here = String(req.headers.host ?? "").toLowerCase();
+            let oh: string;
+            try { oh = new URL(origin).host.toLowerCase(); } catch { oh = ""; }
+            if (oh !== here) {
+              return send(403, { error: "cross_origin", reason: `this desk only accepts actions from itself, not from ${origin}` });
+            }
+          }
+          const site = String(req.headers["sec-fetch-site"] ?? "").toLowerCase();
+          if (site && site !== "same-origin" && site !== "none") {
+            return send(403, { error: "cross_origin", reason: `this desk only accepts same-site actions (got ${site})` });
+          }
           if (m[1] === "signed") {
             const body = await readBody(req);
             const { signedXdr } = JSON.parse(body || "{}");
