@@ -14,7 +14,8 @@
 // A seller should type one command and get a price, a link, and a key to paste
 // into their bot.
 import { createInterface } from "node:readline/promises";
-import { existsSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import { Keypair, Asset } from "@stellar/stellar-sdk";
 import { StellarVault, USDC_ISSUER, type Network } from "./vault.ts";
@@ -461,7 +462,13 @@ export async function main() {
   bad(`unknown command "${cmd}".\n\n${HELP}`);
 }
 
-// Only run when this file is the entry point, so importing it in a test is safe.
-if (process.argv[1] && /cli\.(ts|js)$/.test(process.argv[1])) {
+// Run only when this file is the entry point, so importing it in a test is safe.
+// Compare realpaths, not the invocation string: npm's bin launcher runs this as
+// .../node_modules/.bin/paydlux, which does not end in .js, so a name-based test
+// silently turns the published `paydlux` command into a no-op.
+const invoked = process.argv[1]
+  ? pathToFileURL(existsSync(process.argv[1]) ? realpathSync(process.argv[1]) : process.argv[1]).href
+  : undefined;
+if (invoked === import.meta.url) {
   main().catch((e) => { console.error("failed:", (e as Error).message); process.exit(1); });
 }
