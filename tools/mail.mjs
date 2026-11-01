@@ -270,6 +270,21 @@ async function main() {
     if (cmd === "send" && !f.yes) {
       throw new Error("refusing to send without --yes. use `draft` first, or add --yes once the human has approved this exact email.");
     }
+    // Probed against the live API: POST /messages accepts exactly
+    // fromAddress / toAddress / subject / content. Anything else is rejected —
+    // mailFormat gives PATTERN_NOT_MATCHED, saveAsDraft gives
+    // EXTRA_KEY_FOUND_IN_JSON — so there is no server-side draft here.
+    // `draft` therefore writes the email to a local file for the human to read
+    // and send by hand. Nothing leaves the machine without --yes.
+    if (cmd === "draft") {
+      mkdirSync(SECRET_DIR.replace("secrets", "outbox"), { recursive: true });
+      const file = join(SECRET_DIR.replace("secrets", "outbox"),
+        `draft-${Date.now()}.txt`);
+      writeFileSync(file, `to: ${f.to}\nsubject: ${f.subject}\n\n${f.body}\n`);
+      console.log("draft written, nothing sent:", file);
+      console.log(f.body);
+      return;
+    }
     const data = await api(`/accounts/${id}/messages`, {
       method: "POST",
       body: JSON.stringify({
@@ -277,11 +292,9 @@ async function main() {
         toAddress: f.to,
         subject: f.subject,
         content: f.body,
-        saveAsDraft: cmd === "draft" ? "yes" : "no",
-        mailFormat: "text",
       }),
     });
-    console.log(cmd === "draft" ? "draft saved" : "sent", JSON.stringify(data).slice(0, 200));
+    console.log("sent", JSON.stringify(data).slice(0, 200));
     return;
   }
 

@@ -185,6 +185,16 @@ function row(rec) {
   when.textContent = ago(rec.at) + (rec.tx ? " \u00b7 " + rec.tx.slice(0, 12) + "\u2026" : "");
   foot.append(when);
 
+  // A failed row with no reason is a dead end: the human cannot tell a passed
+  // deadline from a wrong key, and both look like "it says failed".
+  if (rec.status === "failed" && rec.reason) {
+    const why = document.createElement("div");
+    why.className = "wants";
+    why.textContent = rec.reason;
+    wrap.append(top, uri, wants, why, foot);
+    return wrap;
+  }
+
   const actionable = rec.status === "pending" || rec.status === "awaiting_phone";
   if (actionable) {
     const btns = document.createElement("div");
@@ -247,6 +257,17 @@ async function openReview(id) {
     const { hash } = await X.transactionHash(rec.xdr, X.NETWORK_ID[rec.network] || rec.network);
     if (rec.hash && hash !== rec.hash) {
       throw new Error("the transaction does not hash to what the desk advertised \u2014 refusing");
+    }
+    // The vault only accepts the key it was built with. A seed from an earlier
+    // run produces a perfectly valid signature over a perfectly valid
+    // transaction, and the ledger's only reply is BAD_AUTH \u2014 which reads like a
+    // bug and is really the wrong key. Say it before signing instead.
+    if (rec.approver && approverPublic && rec.approver !== approverPublic) {
+      throw new Error(
+        "this vault expects a different approver key.\n" +
+        "vault wants: " + rec.approver.slice(0, 12) + "\u2026\n" +
+        "this device: " + approverPublic.slice(0, 12) + "\u2026\n" +
+        "The seller re-ran the desk, which made a new key. Get the new seed.");
     }
     current = {
       id, xdr: rec.xdr, hash,
