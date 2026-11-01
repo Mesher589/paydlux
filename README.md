@@ -84,11 +84,17 @@ one key. So the approval half is split off:
 npx tsx stellar/phone-check.ts       # 17 checks: seller alone cannot pay; phone alone cannot pay
 npx tsx stellar/e2e-phone.ts         # desk with no approver key still settles
 npx tsx phone-app/xdr-check.ts       # 32 checks: the phone's own decoder is byte-exact with the SDK
-npx tsx phone-app/desk-app-check.ts  # 28 checks: the real app over real HTTP, end to end
+npx tsx phone-app/desk-app-check.ts  # 57 checks: the real app over real HTTP, end to end
 ```
 
 The seller builds the payment and signs it with their own half. The human opens
-one link — `/phone/?id=...` — and the approver app in `phone-app/` shows them the
+one link — `/phone/?k=...` — and the approver app in `phone-app/` shows them the
+`https://desk.paydlux.com/phone/` link opens an installable app: it has a manifest
+and icons, so a phone can put it on the home screen and it runs full-screen. The
+shell (html, js, icons) is public because it holds no secret and no payment data
+and must load before the key does; every route that returns data or moves money
+(`/queue`, `/challenge`, `/approve`, `/signed`, `/deny`) still answers 403 without
+the portal key.
 amount, the token, the payee and the deadline, then signs on the device.
 
 The app is three static files with no dependencies and no build step. It carries
