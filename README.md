@@ -114,6 +114,62 @@ npm install @paydlux/agent
 import { StellarVault, Gateway, PaydluxAgent } from "@paydlux/agent";
 ```
 
+### Seller setup, in full (the four things that bite)
+
+A stranger following only the previous version of this README hit four walls.
+All four are in the code; here they are up front.
+
+```ts
+import { Keypair } from "@stellar/stellar-sdk";
+import { StellarVault, Gateway } from "@paydlux/agent";
+
+const issuer = Keypair.random(), principal = Keypair.random();
+const approver = Keypair.random(), agent = Keypair.random();
+const payee = Keypair.random();
+
+await StellarVault.fundTestnet(issuer);          // testnet only
+await StellarVault.fundTestnet(payee);
+const vault = await StellarVault.create({
+  network: "testnet", issuer, principal, approver, agent, tokenCode: "USDC",
+});
+await vault.trustToken(payee.publicKey(), "1000", payee);   // payee must trust the token
+await vault.deposit("50", issuer);                          // vault must hold the money
+
+const gw = new Gateway({
+  vault, network: "testnet", payee: payee.publicKey(),
+  routes: [{ uri: "/api/data", price: "1.00", mode: "approval" }],
+  principal: principal.secret(),
+  approver: approver.secret(),      // omit this + set `split: true` to approve on a phone
+  agentKeys: [agent.publicKey()],   // (1) without it, no agent can park a payment
+  deskPort: 4022,
+  portalKey: newPortalKey(),        // (2) required before the desk is public
+  deskUrl: "https://desk.example.com",  // (3) what the buyer is told, not loopback
+});
+
+await gw.listen(8080, (uri) => myPayload(uri));
+await gw.desk.listen(4022);         // (4) gw.listen() does NOT start the desk
+```
+
+1. **`agentKeys`** — an intent is only honoured if signed by a listed key. Empty
+   list means nothing can request approval, and the failure looks like a plain
+   402 with no explanation.
+2. **`portalKey`** — the approval page has no login. The key *is* the
+   authentication, so it is a 22-character secret in the link. A desk configured
+   with a public hostname refuses to start without one.
+3. **`deskUrl`** — the 202 the buyer gets says where a human approves. It
+   defaults to `http://127.0.0.1:4022`, which is only right when buyer and
+   seller share a machine.
+4. **`gw.desk.listen(port)`** — the gateway and the desk are two HTTP servers.
+   Starting the gateway alone leaves the queue unreachable.
+
+The buyer side needs the agent **secret**, not the vault's signer list:
+
+```ts
+const agent = new PaydluxAgent({ agentKey: process.env.AGENT_KEY! });
+const res = await agent.get("https://seller.example.com/api/data", { mandate });
+if (!res.ok && res.handle) console.log("parked, awaiting a human at", res.desk);
+```
+
 `npm run build` produces `dist/`. The package depends only on
 `@stellar/stellar-sdk` — no transitive `toml`, so `npm audit` is clean.
 

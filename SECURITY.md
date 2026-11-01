@@ -138,6 +138,42 @@ Still open, and worth reporting if you find it worse than described:
   history of the device that opened the link. Rotating it per session limits the
   damage; it still cannot spend anything by itself.
 
+## Another page could approve a payment (`<0.1.7`)
+
+Found by our own onboarding audit: we installed `@paydlux/agent` into an empty
+directory, wrote a seller from nothing but the published README, and tried to
+break it the way a stranger would.
+
+`POST /approve/<id>` accepted any origin. A cross-origin `fetch` `POST` with no
+custom headers is a CORS *simple request*, so the browser sends it with no
+preflight: the hostile page never sees the reply, but the approval happens
+anyway. Reproduced in a real browser against a desk started exactly as the
+README describes (no `portalKey`):
+
+| | before the click | after |
+|---|---|---|
+| payment | `pending` | `settled`, on-chain |
+| payee token balance | `0.0000000` | `1.0000000` |
+
+One button on a page on another port moved the money. DNS rebinding reaches the
+same loopback port from a remote origin, so "it only listens on 127.0.0.1" was
+not a defence.
+
+Fixed in `0.1.7`: the mutating routes (`/approve`, `/deny`, `/signed`) now
+require `Origin` to name the desk's own host and `Sec-Fetch-Site` to be
+`same-origin` or `none`. `stellar/xss-check.ts` asserts both, plus that the
+portal's own actions still work. Verified again in a browser: the same attack
+against `0.1.7` leaves the payment `pending` and the payee at zero.
+
+A desk configured with a `portalKey` was never exposed — the key gate 403s the
+request first, and the cookie is `SameSite=Strict`. The problem was that the
+**default** path has no key and the README never mentioned one. `0.1.7` also
+documents `portalKey`, `agentKeys` and `deskUrl`, and makes `agentKeys` a
+config field instead of a hidden property.
+
+If you are on `0.1.5` or earlier you also have the approval-page XSS described
+above. Upgrade to `0.1.7`.
+
 There is still **no audit** and **no real money**. Do not put real funds
 anywhere near this.
 

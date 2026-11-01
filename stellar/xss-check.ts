@@ -137,6 +137,32 @@ const main = async () => {
     "client renderer still shows the amount the phone will sign");
   check(phoneHtml.includes("awaiting your phone"), "status text survives the poll");
 
+  step("8. another page cannot approve a payment (CSRF)");
+  // The desk used to accept POST /approve/<id> from any origin. A cross-origin
+  // fetch POST is a CORS simple request: no preflight, so a hostile page never
+  // reads the reply but the approval still happens. Reproduced in a real
+  // browser: a page on another port settled a parked payment and paid the
+  // seller. These checks are what stop that coming back.
+  const csrfRec = gw.desk.enqueue("/csrf-bait", "9.00", "", "x");
+  const cross = await fetch(`http://127.0.0.1:4322/approve/${csrfRec}?k=${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: { origin: "http://evil.example" },
+  });
+  check(cross.status === 403, "cross-origin POST /approve is refused: " + cross.status);
+  const afterCross = (await (await fetch(`http://127.0.0.1:4322/list?k=${encodeURIComponent(key)}`)).json())
+    .find((x: any) => x.id === csrfRec);
+  check(afterCross?.status === "pending", "the bait payment is still pending after the attack: " + afterCross?.status);
+  const rebind = await fetch(`http://127.0.0.1:4322/approve/${csrfRec}?k=${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: { "sec-fetch-site": "cross-site" },
+  });
+  check(rebind.status === 403, "Sec-Fetch-Site: cross-site is refused (DNS rebinding): " + rebind.status);
+  const legit = await fetch(`http://127.0.0.1:4322/approve/${csrfRec}?k=${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: { origin: "http://127.0.0.1:4322" },
+  });
+  check(legit.status === 200, "the portal's own actions still work: " + legit.status);
+
   step("6. the page cannot be framed, and leaks no referrer");
   check(res.headers.get("x-frame-options") !== null ||
         (res.headers.get("content-security-policy") ?? "").includes("frame-ancestors"),

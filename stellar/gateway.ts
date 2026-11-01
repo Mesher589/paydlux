@@ -48,7 +48,20 @@ export type GatewayConfig = {
   /** gate the approval portal behind a single unguessable link */
   portalKey?: string;
   /** hostname the desk is publicly served on; pins the Host header. See DeskConfig. */
-  publicHost?: string;
+  publicHost?: string,
+  /**
+   * Agent public keys allowed to park a payment for approval. An intent is only
+   * honoured if it is signed by one of these, so an unlisted key gets a plain
+   * 402 instead of a queue entry. Leave empty and nothing can request approval.
+   */
+  agentKeys?: string[];
+  /**
+   * Where a human approves, as the BUYER should see it. Set this to the public
+   * desk URL (e.g. "https://desk.paydlux.com") when the desk is reachable there;
+   * it is returned in the 202 so the buyer knows where to go. Defaults to the
+   * loopback address, which is only useful on one machine.
+   */
+  deskUrl?: string;
 };
 
 export type PaymentProof = {
@@ -70,6 +83,7 @@ export class Gateway {
 
   constructor(cfg: GatewayConfig) {
     this.cfg = cfg;
+    this.agentKeys = cfg.agentKeys ?? [];
     for (const r of cfg.routes) this.routes.set(r.uri, r);
     this.desk = new ApprovalDesk({
       vault: cfg.vault,
@@ -116,7 +130,7 @@ export class Gateway {
   }
 
   /** Keys allowed to place approval requests. */
-  agentKeys: string[] = [];
+  agentKeys: string[];
 
   requirements(uri: string) {
     const r = this.routes.get(uri)!;
@@ -224,7 +238,12 @@ export class Gateway {
         }
         const handle = this.desk.enqueue(uri, r.price, body, getContent(uri));
         res.writeHead(202, { "content-type": "application/json", "x-payment-hold": handle });
-        res.end(JSON.stringify({ status: "awaiting_approval", handle, desk: `http://127.0.0.1:${this.cfg.deskPort ?? 4022}` }));
+        // The buyer needs to know where a human approves. Loopback is only
+        // right when both sides are on one machine; anything real sets deskUrl
+        // (or publicHost) so this points at the https desk.
+        const deskUrl = this.cfg.deskUrl
+          ?? (this.cfg.publicHost ? `https://${this.cfg.publicHost}` : `http://127.0.0.1:${this.cfg.deskPort ?? 4022}`);
+        res.end(JSON.stringify({ status: "awaiting_approval", handle, desk: deskUrl }));
         return;
       }
 
