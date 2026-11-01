@@ -136,6 +136,12 @@ export type DeskRecord = {
   content?: string;
   tx?: string;
   reason?: string;
+  /**
+   * Dedupe key: same buyer + same request + same price. Without it, every retry
+   * after an approval parks a NEW payment, so a human approving twice pays
+   * twice and the buyer never gets the content they already bought.
+   */
+  key?: string;
   /** split mode: what the phone is asked to sign, and what it sent back */
   challenge?: ApprovalChallenge;
   qr?: string;
@@ -181,11 +187,29 @@ export class ApprovalDesk {
 
   constructor(cfg: DeskConfig) { this.cfg = cfg; }
 
-  enqueue(uri: string, price: string, body: string, content: string): string {
+  enqueue(uri: string, price: string, body: string, content: string, key?: string): string {
+    // Re-use an existing request for the same buyer + body + price. A buyer who
+    // retries after a human approved must get their content, not a second
+    // payment waiting in the queue. Settled records are NOT reused here — the
+    // gateway decides how long a paid-for request stays free to collect.
+    if (key) {
+      const hit = this.allByKey(key).find((r) => r.status === "pending" || r.status === "awaiting_phone");
+      if (hit) return hit.id;
+    }
     const id = `pay_${(++this.seq).toString().padStart(4, "0")}`;
-    this.records.set(id, { id, at: Date.now(), uri, price, body, status: "pending", content });
+    this.records.set(id, { id, at: Date.now(), uri, price, body, status: "pending", content, key });
     console.log(`[desk] ${id} awaiting a human: ${price} for ${uri}`);
     return id;
+  }
+
+  /** Every record carrying this key, newest first. */
+  allByKey(key: string): DeskRecord[] {
+    if (!key) return [];
+    return [...this.records.values()].filter((r) => r.key === key).sort((a, b) => b.at - a.at);
+  }
+
+  findByKey(key: string): DeskRecord | null {
+    return this.allByKey(key)[0] ?? null;
   }
 
   get(id: string) { return this.records.get(id) ?? null; }

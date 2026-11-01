@@ -101,12 +101,36 @@ const main = async () => {
   ok(`seller ${await vault.balance(seller.publicKey())}, vault ${await vault.balance()}`);
 
   step("9. deny path — nothing moves");
+  // A different body is a different request. The same body as step 8 would be
+  // the same purchase, already paid for, and would be served free within the
+  // collect window — which is the point of dedupe, not a bug.
   const before = await vault.balance(seller.publicKey());
-  const ask2 = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/big`);
+  const ask2 = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/big`, { body: "a second, different request" });
+  if (!ask2.handle) bad("deny test did not park a payment: " + ask2.reason);
   const denied = await fetch(`http://127.0.0.1:${DESK_PORT}/deny/${ask2.handle}`, { method: "POST" }).then((r) => r.json());
   const after = await vault.balance(seller.publicKey());
   if (denied.status !== "denied" || before !== after) bad("deny path moved money");
   ok(`denied, balance unchanged at ${after}`);
+
+  step("9b. a denied request is not re-parked on retry");
+  // Without this the buyer could hammer the desk with the same request the
+  // human already refused, and a tired human eventually taps Approve.
+  const retry = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/big`, { body: "a second, different request" });
+  if (retry.reason !== denied.reason) bad("retry did not report the denial: " + retry.reason);
+  const q1 = await fetch(`http://127.0.0.1:${DESK_PORT}/list`).then((r) => r.json());
+  if (q1.filter((p: any) => p.status === "pending").length) bad("a denied request was re-parked as pending");
+  if (q1.length !== 2) bad(`retry created ${q1.length - 2} new queue record(s); expected 0`);
+  ok(`retry refused (${retry.reason}) and added nothing to the desk`);
+
+  step("9c. an approved payment is collectable, then expires");
+  // Step 8's payment bought /api/big. Retrying it must be free (that is how a
+  // buyer collects after waiting) and must not park a second payment.
+  const collect = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/api/big`);
+  if (!collect.ok || collect.status !== 200) bad("paid-for content was not served on retry: " + collect.reason);
+  const queueAfter = await fetch(`http://127.0.0.1:${DESK_PORT}/list`).then((r) => r.json());
+  const parked = queueAfter.filter((p: any) => p.status === "pending");
+  if (parked.length !== 0) bad(`collecting a paid-for request parked ${parked.length} new payment(s)`);
+  ok(`collected free within the window, no new payment parked (${queueAfter.length} total records)`);
 
   step("10. panic button");
   const rev = await vault.revokeAll(principal, approver);

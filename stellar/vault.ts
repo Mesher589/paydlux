@@ -145,6 +145,13 @@ export class StellarVault {
    * Create a vault. `issuer` signs the token; the vault account itself is a
    * multisig whose release threshold needs principal + approver, or agent +
    * a pre-authorised mandate hash. Nothing else reaches threshold.
+   *
+   * `tokenIssuer` separates two roles that are the same account for a custom
+   * token and different accounts for real USDC. Circle mints USDC, so on
+   * mainnet the account that pays to create the vault is the seller's wallet
+   * while the token's issuer is Circle's — we hold no key for it and must not
+   * pretend to. Pass the issuer's public key there and the asset is built from
+   * it instead of from `issuer`.
    */
   static async create(opts: {
     network: Network;
@@ -153,6 +160,7 @@ export class StellarVault {
     approver: Keypair;
     agent: Keypair;
     tokenCode: string;
+    tokenIssuer?: string;
     vaultSeed?: string;
     startingBalance?: string;
   }): Promise<StellarVault> {
@@ -173,7 +181,7 @@ export class StellarVault {
     // The trustline has to ride in this same transaction: once masterWeight is
     // 0 the vault seed cannot sign anything on its own, so a later changeTrust
     // would need two human signatures before the vault can even hold tokens.
-    const token = new Asset(opts.tokenCode, issuer.publicKey());
+    const token = new Asset(opts.tokenCode, opts.tokenIssuer ?? issuer.publicKey());
     await sub(h, pass, (await tb(h, vault.publicKey(), undefined, pass))
       .addOperation(Operation.changeTrust({ asset: token, limit: "100000000" }))
       .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: principal.publicKey(), weight: 1 } }))
