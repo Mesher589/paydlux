@@ -116,9 +116,20 @@ const main = async () => {
   ok(`refused: ${afterRevoke.reason}`);
 
   step("11. the approval portal renders for a human");
+  // Enqueue a known record and look for *its* Approve button. Checking the page
+  // for the word "Approve" in general used to pass on the text of an inline
+  // <script> tag, which said nothing about whether a human could actually see a
+  // row. Every earlier payment here is already settled or denied, so a real
+  // button only appears if the row for this handle was rendered.
+  const shown = gw.desk.enqueue("/api/visible", "7.00", "a payload the human should see", "x");
   const html = await fetch(`http://127.0.0.1:${DESK_PORT}/`).then((r) => r.text());
-  if (!html.includes("Paydlux") || !html.includes("Approve")) bad("portal did not render");
-  ok(`portal served at http://127.0.0.1:${DESK_PORT}/ (${html.length} bytes, ${pending.length + 2} rows)`);
+  if (!html.includes("Paydlux")) bad("portal did not render");
+  if (!html.includes(`data-act="approve" data-id="${shown}"`))
+    bad(`no Approve button rendered for ${shown} — a human would see an empty desk`);
+  if (!html.includes("a payload the human should see")) bad("the request body was not shown");
+  if (!html.includes("/api/visible")) bad("the request path was not shown");
+  const rows = (html.match(/<tr>\n  <td>/g) ?? []).length;
+  ok(`portal served at http://127.0.0.1:${DESK_PORT}/ (${html.length} bytes, ${rows} rows, ${shown} actionable)`);
 
   step("12. a public portal link is unguessable, not just obscure");
   // The portal has no login, so the URL is the credential. If a portalKey is
