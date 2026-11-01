@@ -435,6 +435,54 @@ sell with:  paydlux sell --split --tls
 `);
 }
 
+// --------------------------------------------------------------------- withdraw
+
+/**
+ * Take your money back out of the vault. This is a normal 2-of-2 payment:
+ * principal (this laptop) + approver (your phone, or the laptop until you run
+ * `approver --forget`). The agent key cannot do this — it has no path to an
+ * arbitrary destination, which is the whole point of the vault.
+ *
+ * The XLM the vault pays in ledger rent stays locked while the account exists.
+ * Closing the vault (not done here) returns that too.
+ */
+async function withdraw() {
+  const { data } = loadVault();
+  const to = arg("to");
+  const amount = arg("amount");
+  const all = flag("all");
+  if (!to) bad(`where should it go?\n\n  paydlux withdraw --to G… [--all | --amount 8]\n\n  --to can be any Stellar account, including your Binance deposit address.`);
+
+  const vault = await StellarVault.load(
+    data.vault, data.token.code, data.token.issuer,
+    {
+      principal: pub(data.keys.principal),
+      approver: data.keys.approver ? pub(data.keys.approver) : undefined,
+      agent: pub(data.keys.agent),
+    } as any,
+    (data.network ?? "testnet") as Network,
+  );
+  if (data.token.code === "USDC") vault.useUsdc();
+  const bal = await vault.balance();
+  const want = all ? bal : amount;
+  if (!want) bad(`say how much: --all, or --amount 8 (vault holds ${bal} ${data.token.code})`);
+  if (Number(want) > Number(bal)) bad(`the vault holds ${bal} ${data.token.code}, not ${want}.`);
+
+  const keys = data.keys ?? {};
+  const principal = Keypair.fromSecret(keys.principal);
+  const approver = keys.approver ? Keypair.fromSecret(keys.approver) : null;
+  if (!approver) {
+    console.log(`this laptop holds only one of the two keys, so the withdrawal needs your phone.
+  open:  ${flag("tls") ? `https://${PUBLIC_HOST}` : "http://127.0.0.1:4022"}/?k=${data.desk?.portalKey ?? "…"}`);
+    bad("then run this again — approvals from the phone land automatically.");
+  }
+
+  console.log(`sending ${want} ${data.token.code} from the vault to ${to} …`);
+  const res = await vault.release(to, String(want), principal, approver, "paydlux withdraw");
+  console.log(`done. tx ${res?.hash}`);
+  console.log(`vault now holds ${await vault.balance()} ${data.token.code}`);
+}
+
 // ------------------------------------------------------------------------- main
 
 const HELP = `paydlux — get paid by AI agents, with a human in the loop.
@@ -448,6 +496,9 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
   paydlux approver [--forget]
       print the human half of the vault, then optionally delete it from this
       machine so only the phone can approve.
+  paydlux withdraw --to G… [--all | --amount N]
+      take your money back out of the vault. Needs both human keys; the agent
+      key can never do this.
 
 one file holds it all: ./paydlux-vault.json (0600, never commit it)
 `;
@@ -459,6 +510,7 @@ export async function main() {
   if (cmd === "sell") return sell();
   if (cmd === "status") return status();
   if (cmd === "approver") return approver();
+  if (cmd === "withdraw") return withdraw();
   bad(`unknown command "${cmd}".\n\n${HELP}`);
 }
 
