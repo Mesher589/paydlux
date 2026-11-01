@@ -558,6 +558,11 @@ export class ApprovalDesk {
           return send(200, {
             id: rec.id, network: rec.challenge.network,
             hash: rec.challenge.hash, xdr: rec.challenge.xdr,
+            // Which key this vault will actually accept. A phone holding a key
+            // from a previous run signs a valid signature over a valid
+            // transaction, and the ledger answers BAD_AUTH with no explanation.
+            // Naming the expected key here lets the app say so BEFORE signing.
+            approver: this.cfg.vault.signers.approver,
             // what the human is being asked to read. Agent-controlled text: the
             // app renders it as text, never as markup.
             wants: (rec.body ?? "").slice(0, 200),
