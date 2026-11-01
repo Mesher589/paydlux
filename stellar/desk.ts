@@ -28,24 +28,33 @@ import {
  * The approver app is plain static files under phone-app/. Read on each request
  * rather than bundled, so the desk and the app can never drift apart.
  */
-const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), "..", "phone-app");
-const appCache = new Map<string, string>();
-function readAppFile(name: string): string {
+const HERE = dirname(fileURLToPath(import.meta.url));
+const APP_DIR = join(HERE, "..", "phone-app");
+const PORTAL_DIR = join(HERE, "..", "portal-app");
+const staticCache = new Map<string, string>();
+
+/**
+ * Static files are read on each process start rather than bundled, so the desk
+ * and its front ends can never drift apart. The name is stripped to [a-z.]
+ * before it touches a path, so a request can't walk out of the directory.
+ */
+function readStatic(dir: string, name: string, label: string): string {
   const safe = name.replace(/[^a-z.]/g, "");
-  const hit = appCache.get(safe);
+  const hit = staticCache.get(dir + "/" + safe);
   if (hit) return hit;
   let text: string;
   try {
-    text = readFileSync(join(APP_DIR, safe), "utf8");
+    text = readFileSync(join(dir, safe), "utf8");
   } catch {
-    // A package install that shipped without phone-app/ should say so instead of
+    // A package install that shipped without the folder should say so instead of
     // throwing out of the request handler.
-    throw new Error(
-      "approver app is missing from this install (expected " + join(APP_DIR, safe) + ")");
+    throw new Error(label + " is missing from this install (expected " + join(dir, safe) + ")");
   }
-  appCache.set(safe, text);
+  staticCache.set(dir + "/" + safe, text);
   return text;
 }
+const readAppFile = (name: string) => readStatic(APP_DIR, name, "approver app");
+const readPortalFile = (name: string) => readStatic(PORTAL_DIR, name, "portal app");
 
 /** A portal link is a capability: whoever holds it can approve. So it is long,
  *  random, and compared without leaking timing. */
@@ -335,6 +344,23 @@ export class ApprovalDesk {
         // again for this host.
         res.setHeader("strict-transport-security", "max-age=31536000; includeSubDomains");
       }
+      // Security headers on every response, including the 403. These are set
+      // before routing so no branch can forget them.
+      //
+      // default-src 'self' plus script-src 'self' is the load-bearing one: the
+      // portal renders text the buyer's agent chose (its request path and body),
+      // so if an escaping bug ever let markup through, CSP still stops it from
+      // running or phoning home. Escaping is the fix; CSP is the net under it.
+      // frame-ancestors stops another site framing the Approve button, and
+      // no-referrer keeps the portal key out of any third-party Referer header.
+      res.setHeader("content-security-policy",
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+      res.setHeader("x-frame-options", "DENY");
+      res.setHeader("referrer-policy", "no-referrer");
+      res.setHeader("x-content-type-options", "nosniff");
+      res.setHeader("cache-control", "no-store");
+
       // Liveness probe, before the portal-key gate: it proves the desk and its
       // TLS path are up without revealing anything. No data, safe to poll.
       if (url.pathname === "/healthz") {
@@ -371,6 +397,18 @@ export class ApprovalDesk {
         if (url.pathname === "/") {
           res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
           res.end(portalPage(this.list(), this.cfg.vault.address, this.cfg.vault.network, qs));
+          return;
+        }
+        // The portal's own css and js. Served as separate files, never inline,
+        // so script-src 'self' and style-src 'self' actually hold on the
+        // approval page and an injected string can't become executable script.
+        if (url.pathname === "/portal.js" || url.pathname === "/portal.css") {
+          const file = url.pathname.slice(1);
+          res.writeHead(200, {
+            "content-type": (file.endsWith(".css") ? "text/css" : "text/javascript") + "; charset=utf-8",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(readPortalFile(file));
           return;
         }
         if (url.pathname === "/list") return send(200, this.list());

@@ -42,7 +42,10 @@ In rough order:
 3. Anything that lets a consumed mandate or a settled payment be replayed.
 4. Anything that lets the approval portal be reached or driven without its
    unguessable portal key.
-5. Key handling: how seeds are generated, stored, or logged.
+5. Anything that lets the buyer's agent get executable markup into the approval
+   page. The agent controls the request path and body that the human reads
+   before approving, so script there runs on the page that authorises payments.
+6. Key handling: how seeds are generated, stored, or logged.
 
 ## Key handling: what is fixed, and what is not
 
@@ -76,6 +79,34 @@ split, and the split is tested rather than asserted:
   inline script, so a script injected into the page can neither read the key nor
   send it anywhere.
 
+## The approval page renders text the buyer controls
+
+The portal shows the human what the agent asked for. `uri` is the request path
+the agent sent and `body` is its request body — both stored verbatim and both
+rendered on the one page that can authorise a payment. So both are escaped, on
+the server (`esc()` in `stellar/portal.ts`) and again in the browser
+(`portal-app/portal.js`, which re-renders from polled JSON).
+
+This was a real hole, not a theoretical one: an agent requesting
+
+    /x<img src=x onerror=...>
+
+got that markup injected live into the approval page, same-origin, on the page
+holding the portal key. A human clicking Approve on a page the agent can script
+is not a human approving a payment. Fixed by escaping every field plus removing
+inline handlers and inline script entirely, so the page's CSP is meaningful:
+
+    default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self';
+    frame-ancestors 'none'; base-uri 'none'; form-action 'self'
+
+`stellar/xss-check.ts` (`npm run test:portal`) drives hostile paths and bodies
+through a real gateway and a real desk, checks none of them survive as live
+markup, evaluates the browser renderer directly, and asserts the clickjacking,
+referrer and caching headers. It also asserts the two renderers agree — the page
+loads server-rendered and is then replaced by the client renderer on each poll,
+so anything the client omits vanishes from the human's screen a few seconds
+after they act.
+
 Still open, and worth reporting if you find it worse than described:
 
 - The default development path (`DeskConfig.approver`) still accepts both seeds
@@ -99,8 +130,13 @@ Still open, and worth reporting if you find it worse than described:
   to skip TLS. `stellar/tls-check.ts` asserts all of it. A desk configured with a
   public hostname also refuses to start without a portal key.
   Still open on that path: the portal key travels in the URL of the link the
-  human opens, so it lands in browser history and any proxy log that sees the
-  request line. Rotating it per session limits the damage; it still cannot spend.
+  human opens, so it lands in browser history and in any proxy log that sees the
+  request line. `Referrer-Policy: no-referrer` and `frame-ancestors 'none'` keep
+  it out of third-party `Referer` headers and stop another site framing the
+  Approve button, and the desk sets an `HttpOnly; SameSite=Strict; Secure`
+  cookie so subsequent requests do not need it in the URL. It is still in the
+  history of the device that opened the link. Rotating it per session limits the
+  damage; it still cannot spend anything by itself.
 
 There is still **no audit** and **no real money**. Do not put real funds
 anywhere near this.

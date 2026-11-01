@@ -1,0 +1,22 @@
+:root{--ink:#0d0f0e;--line:#262a28;--text:#eceae4;--muted:#9aa39d;--gold:#e8b04b;--green:#5fbf8b}
+*{box-sizing:border-box}
+body{margin:0;background:var(--ink);color:var(--text);font:16px/1.5 -apple-system,"Avenir Next",system-ui,sans-serif;padding:24px}
+h1{font-size:20px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin-bottom:24px;word-break:break-all}
+table{width:100%;border-collapse:collapse}
+th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+td{padding:14px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+.amt{font-weight:700;color:var(--gold);white-space:nowrap}
+.uri{font-family:ui-monospace,monospace;font-size:13px;word-break:break-all}
+.body{color:var(--muted);font-size:12px;max-width:340px;word-break:break-word}
+button{border:0;border-radius:10px;padding:12px 18px;font-size:15px;font-weight:600;cursor:pointer;display:block;width:100%;margin:4px 0}
+.yes{background:var(--green);color:#08110c}
+.no{background:transparent;color:var(--muted);border:1px solid var(--line)}
+.st{font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.settled{color:var(--green)} .denied,.failed{color:#e07a6b} .pending{color:var(--gold)}
+.tx{font-family:ui-monospace,monospace;font-size:11px;color:var(--muted);word-break:break-all}
+.qr{font-size:10px;white-space:pre-wrap;background:#141715;padding:8px;border-radius:8px;color:var(--text)}
+details summary{cursor:pointer}
+.phlink{color:var(--gold);text-decoration:underline;font-size:12px}
+.foot{margin-top:28px;color:var(--muted);font-size:12px}
+@media(max-width:640px){.body{max-width:180px}}

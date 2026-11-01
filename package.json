@@ -16,6 +16,8 @@
     "phone-app/index.html",
     "phone-app/app.js",
     "phone-app/xdr.js",
+    "portal-app/portal.js",
+    "portal-app/portal.css",
     "README.md",
     "LICENSE"
   ],
@@ -33,6 +35,7 @@
     "test:tls": "tsx stellar/tls-check.ts",
     "test": "cd contracts && forge test",
     "test:stellar": "tsx stellar/demo.ts",
+    "test:portal": "tsx stellar/xss-check.ts",
     "test:phone": "tsx stellar/phone-check.ts && tsx stellar/desk-split-check.ts && tsx stellar/e2e-phone.ts && tsx phone-app/xdr-check.ts && tsx phone-app/app-check.ts && tsx phone-app/desk-app-check.ts",
     "typecheck": "tsc --noEmit"
   },
