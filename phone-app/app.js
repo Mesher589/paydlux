@@ -185,6 +185,17 @@ function row(rec) {
   when.textContent = ago(rec.at) + (rec.tx ? " \u00b7 " + rec.tx.slice(0, 12) + "\u2026" : "");
   foot.append(when);
 
+  // The other way a payment dies is the clock. Show the time left on the row,
+  // so "I approved it and nothing happened" is not the first warning.
+  if (rec.expiresAt && (rec.status === "pending" || rec.status === "awaiting_phone")) {
+    const left = Math.round((Number(rec.expiresAt) * 1000 - Date.now()) / 60000);
+    const clock = document.createElement("span");
+    clock.className = "ago";
+    clock.textContent = left > 0 ? " \u00b7 " + left + " min left" : " \u00b7 expired";
+    if (left <= 5) clock.style.color = "#ff6b6b";
+    foot.append(clock);
+  }
+
   // A failed row with no reason is a dead end: the human cannot tell a passed
   // deadline from a wrong key, and both look like "it says failed".
   if (rec.status === "failed" && rec.reason) {

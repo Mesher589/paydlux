@@ -68,6 +68,10 @@ const main = async () => {
     // hit on the loopback port cannot drive it.
     publicHost: TLS ? PUBLIC_HOST : undefined,
     routes: [{ uri: "/market/data", price: "4.50", mode: "approval", holdSeconds: 3600 }],
+    // A demo that expires while the human is still reading the email is a demo
+    // that failed. 30 minutes is a workday courtesy; the deadline is shown in
+    // the app either way.
+    decideWithinSeconds: 3600,
   });
   gw.agentKeys = [agent.publicKey()];
   await gw.listen(GATEWAY_PORT, (u) => `{"ok":true,"data":"market snapshot","served_by":"${u}"}`);

@@ -55,6 +55,8 @@ export type GatewayConfig = {
   portalKey?: string;
   /** hostname the desk is publicly served on; pins the Host header. See DeskConfig. */
   publicHost?: string,
+  /** how long a human gets to decide before the parked payment's tx is dead */
+  decideWithinSeconds?: number,
   /**
    * Agent public keys allowed to park a payment for approval. An intent is only
    * honoured if it is signed by one of these, so an unlisted key gets a plain
@@ -100,6 +102,7 @@ export class Gateway {
       portalKey: cfg.portalKey,
       split: cfg.split,
       publicHost: cfg.publicHost,
+      decideWithinSeconds: cfg.decideWithinSeconds,
     });
   }
 
