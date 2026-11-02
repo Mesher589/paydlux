@@ -51,7 +51,8 @@
     "app": "tsx stellar/cli.ts",
     "app:mainnet": "tsx stellar/cli.ts setup --mainnet",
     "test:showcase": "tsx stellar/showcase-check.ts",
-    "test:native": "tsx stellar/native-check.ts"
+    "test:native": "tsx stellar/native-check.ts",
+    "test:receive": "tsx stellar/receive-check.ts"
   },
   "keywords": [
     "x402",
