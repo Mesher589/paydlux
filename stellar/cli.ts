@@ -24,7 +24,8 @@ import { StellarVault, USDC_ISSUER, passphrase, type Network } from "./vault.ts"
 import { Gateway } from "./gateway.ts";
 import { newPortalKey } from "./desk.ts";
 import { PolicyEngine } from "./policy.ts";
-import { PUBLIC_HOST, runTunnel, tunnelLive, tunnelProblem } from "./tunnel.ts";
+import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelServes } from "./tunnel";
+import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase";
 
 export const VAULT_FILE_DEFAULT = "paydlux-vault.json";
 
@@ -313,7 +314,15 @@ async function sell() {
     portalKey,
     publicHost,
     agentKeys: [pub(keys.agent)],
-    routes: [{ uri, price, mode, holdSeconds: Number(arg("hold") ?? 3600) }],
+    routes: [
+      { uri, price, mode, holdSeconds: Number(arg("hold") ?? 3600) },
+      // --showcase adds a second priced route for the public page. Same price,
+      // same mandate, same desk: the showcase gets no special treatment at the
+      // spending door, it only gets its own hostname.
+      ...(flag("showcase")
+        ? [{ uri: DEMO_ROUTE, price, mode: mode as "approval" | "preauth", holdSeconds: Number(arg("hold") ?? 3600) }]
+        : []),
+    ],
     // The banner prints these numbers. This line is what makes them true.
     policy,
   });
@@ -330,6 +339,33 @@ async function sell() {
     note: "paid through Paydlux; the payment is on the Stellar ledger",
   }));
   await gw.desk.listen(deskPort);
+
+  // The public showcase: a page where a stranger drives the real 402 loop.
+  // It is a second listener in front of the SAME gateway, so the mandate, the
+  // desk and the daily budget are the ones already under test. It is refused
+  // without --tls because a payment request over plain HTTP is a request
+  // somebody else can replay.
+  if (flag("showcase")) {
+    if (!tls) {
+      bad("--showcase needs --tls. The page hands out agent identities to strangers; "
+        + "doing that over plain HTTP means anyone on the path can collect them.");
+    }
+    const demoPort = Number(arg("demo-port") ?? 4023);
+    const who = await portHolder(demoPort);
+    if (who) bad(`port ${demoPort} (showcase) is already in use by ${who}.`);
+    await startDemo({
+      port: demoPort, price, network, vault: vault.address, token: data.token.code,
+      explorer: data.explorer ?? "", gateway: gw,
+      onKeys: (pubs) => { gw.agentKeys = [pub(keys.agent), ...pubs]; },
+    });
+    log(`showcase is listening on 127.0.0.1:${demoPort} for https://${DEMO_HOST}`);
+    if (!tunnelServes(DEMO_HOST)) {
+      log(`  the tunnel does not route ${DEMO_HOST} yet. Add to ~/.cloudflared/config.yml:`);
+      log(`    - hostname: ${DEMO_HOST}`);
+      log(`      service: http://127.0.0.1:${demoPort}`);
+      log(`  then: cloudflared tunnel route dns ${TUNNEL_NAME} ${DEMO_HOST}`);
+    }
+  }
 
   const deskUrl = tls ? `https://${PUBLIC_HOST}` : `http://127.0.0.1:${deskPort}`;
   if (tls) {

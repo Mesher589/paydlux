@@ -16,7 +16,7 @@
 // in this repo and must never be. Anyone holding that file can serve your
 // hostname. Losing it means deleting the tunnel and making a new one.
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -68,6 +68,20 @@ export function tunnelProblem(): string | null {
 
 /** True if this machine can run the named tunnel. */
 export function tunnelReady(): boolean { return tunnelProblem() === null; }
+
+/**
+ * Does ~/.cloudflared/config.yml already route this hostname to something?
+ * A DNS record alone is not enough: cloudflared answers unmatched hostnames
+ * with its own error unless ingress names the host, so a new public hostname
+ * needs both a route and an ingress line. Reading the file beats probing the
+ * public URL at startup, because the URL may be cached, cold, or mid-deploy.
+ */
+export function tunnelServes(hostname: string): boolean {
+  const dir = join(homedir(), ".cloudflared");
+  let cfg = "";
+  try { cfg = readFileSync(join(dir, "config.yml"), "utf8"); } catch { return false; }
+  return new RegExp(`hostname:\\s*${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(cfg);
+}
 
 /**
  * Start the named tunnel and make sure it dies with us. An orphaned cloudflared
