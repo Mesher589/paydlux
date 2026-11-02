@@ -117,6 +117,32 @@ export type VaultSigners = {
   agent: string;
 };
 
+/**
+ * Does a Horizon balance/payment record name this exact asset?
+ *
+ * The old code hard-coded "not native" in two places, which quietly made a
+ * native-XLM vault blind to its own money: balance() reported 0 and paidToday()
+ * reported 0 spent, so the daily budget never moved no matter how much XLM left
+ * the vault. Asset identity has to be ONE comparison that handles both cases,
+ * because a budget that reads as unspent is worse than no budget at all.
+ *
+ * Exported as a pure function so the rule is testable without funding an
+ * account: this decides whether money counts against a spending mandate.
+ */
+export function assetMatches(token: Asset, rec: any): boolean {
+  // stellar-base has no Native subclass: a native asset is an Asset whose
+  // getAssetType() is "native" and whose getIssuer() is undefined. Comparing
+  // constructors would silently treat XLM as a token with no issuer.
+  if (token.getAssetType() === "native") {
+    // Native XLM records carry asset_type "native" and no code/issuer at all.
+    return rec?.asset_type === "native";
+  }
+  return rec?.asset_type !== "native"
+    && rec?.asset_type !== "liquidity_pool_shares"
+    && rec?.asset_code === token.getCode()
+    && rec?.asset_issuer === token.getIssuer();
+}
+
 export class StellarVault {
   readonly horizon: Horizon.Server;
   readonly network: Network;
@@ -252,12 +278,36 @@ export class StellarVault {
     return !!r && r.ok;
   }
 
+  /**
+   * Does a Horizon balance/payment record name *this* vault's token?
+   *
+   * The old code hard-coded "not native" in two places, which quietly made a
+   * native-XLM vault blind to its own money: balance() reported 0 and
+   * paidToday() reported 0 spent, so the daily budget never moved no matter how
+   * much XLM left the vault. Asset identity has to be one comparison that
+   * handles both cases, because a budget that reads as unspent is worse than no
+   * budget at all.
+   */
+  private isOurAsset(rec: any): boolean {
+    if (this.isNative) {
+      // Native XLM records carry asset_type "native" and no code/issuer at all.
+      return rec.asset_type === "native";
+    }
+    return rec.asset_type !== "native"
+      && rec.asset_type !== "liquidity_pool_shares"
+      && rec.asset_code === this.token.getCode()
+      && rec.asset_issuer === this.token.getIssuer();
+  }
+
+  /** True when this vault settles in XLM itself rather than a token. */
+  // stellar-base has no Native subclass: a native asset is an Asset whose
+  // getAssetType() is "native" and whose getIssuer() is undefined. Comparing
+  // constructors would silently treat XLM as a token with no issuer.
+  get isNative(): boolean { return this.token.getAssetType() === "native"; }
+
   async balance(account = this.address): Promise<Amount> {
     const acc = await this.horizon.loadAccount(account);
-    const b = acc.balances.find(
-      (x: any) => x.asset_type !== "native" && x.asset_type !== "liquidity_pool_shares"
-        && x.asset_code === this.token.getCode() && x.asset_issuer === this.token.getIssuer(),
-    ) as any;
+    const b = (acc.balances as any[]).find((x) => this.isOurAsset(x));
     return b?.balance ?? "0";
   }
 
@@ -302,8 +352,9 @@ export class StellarVault {
         if (new Date(e.created_at).getTime() < start.getTime()) return total.toFixed(7);
         if (e.type !== "payment" && e.type !== "claimable_balance_claim") continue;
         if (e.to !== payee) continue;
-        if (e.asset_type === "native") continue;
-        if (e.asset_code !== this.token.getCode() || e.asset_issuer !== this.token.getIssuer()) continue;
+        // Native XLM counts too. Skipping it here is how an XLM vault would pay
+        // its whole daily budget and still be told it had the full budget left.
+        if (!this.isOurAsset(e)) continue;
         total += Number(e.amount);
       }
       cursor = recs[recs.length - 1].paging_token;
