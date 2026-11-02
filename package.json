@@ -49,7 +49,8 @@
     "test:seed": "DEVELOPER_DIR=/Library/Developer/CommandLineTools /usr/bin/swiftc -target arm64-apple-macosx14.0 ios/PaydluxApprover/Seed.swift ios/PaydluxApprover/Hex.swift ios/Checks/main.swift -o \"$TMPDIR/seedcheck\" && \"$TMPDIR/seedcheck\"",
     "typecheck": "tsc --noEmit",
     "app": "tsx stellar/cli.ts",
-    "app:mainnet": "tsx stellar/cli.ts setup --mainnet"
+    "app:mainnet": "tsx stellar/cli.ts setup --mainnet",
+    "test:showcase": "tsx stellar/showcase-check.ts"
   },
   "keywords": [
     "x402",
