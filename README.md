@@ -213,11 +213,32 @@ if (res.ok) console.log(res.data, "paid in tx", res.tx);
 `npx tsx stellar/onboard.ts` creates the vault and prints that key. The key is
 **one of two signatures** — it cannot spend alone.
 
+### Your spending mandate (one command, enforced at the approve button)
+
+```bash
+paydlux sell --price 4.50 --max 10 --daily 20
+```
+
+No payment above 10, nothing past 20 in a day. The desk checks this **before**
+it asks your phone, and again at submission — the budget can be spent between
+your approval and the ledger call, so a stale signature is refused rather than
+honoured. Approvals already waiting count against the budget, so a queue of six
+4.50 requests against a 20/day cap sends four to your phone and refuses two at
+the button instead of letting you approve six and watch two fail.
+
+A refusal answers the buyer with `error: "mandate_refused"` on the **same**
+handle, so a polite agent cannot park-refuse-park forever. `paydlux sell` also
+refuses to start if `--price` is above `--max` or `--daily`, because that
+combination blocks every payment and looks like a bug in the desk.
+
+Verified on the published package: 6 x 4.50 against `--daily 20` -> four
+settled, two refused, vault balance moved exactly 18.00 and stopped.
+
 ### What is enforced where (said honestly)
 
-| enforced by Stellar | enforced by `policy.ts` |
+| enforced by Stellar | enforced by the desk (`policy.ts`) |
 |---|---|
-| max per payment, payee, token, time window, one-shot execution | payments per day, running daily total, seller allow/deny list |
+| payee, token, time window, one-shot execution, per-payment ceiling as a signer rule | per-payment ceiling and daily total at the approve button and again at submission, running daily total, seller allow/deny list |
 
 The vault is one payment at a time; counting payments is our job. A rule break
 means we never build the transaction, so nothing reaches the ledger.
