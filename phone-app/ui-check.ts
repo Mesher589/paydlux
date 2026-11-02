@@ -11,7 +11,7 @@
 // build failure instead.
 //
 //   npx tsx phone-app/ui-check.ts
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -63,7 +63,31 @@ ok(/if \(native\.available\(\)\) show\("forget", false\)/.test(js),
   "the remove-key button is hidden when the native bridge holds the key");
 ok(!/show\("seedRow"/.test(js), "the stale seedRow reference is gone");
 
-step("4. the offline shell caches code, never payment data");
+step("4. every asset the page loads is on disk and in the published package");
+// index.html loads xdr.js, verify.js, app.js, sw.js, an icon and a manifest.
+// package.json "files" is a hand-maintained allowlist, so a new script tag can
+// ship a 404: the approver page would load, render, and then throw the moment
+// anyone pressed Approve, because verify.js — the check that the signature came
+// from the key the review screen displayed — was not in the tarball.
+const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+const refs = new Set<string>();
+for (const m of html.matchAll(/<(?:script|link)[^>]+(?:src|href)="([^"]+)"/g)) {
+  const u2 = m[1];
+  if (/^(https?:)?\/\//.test(u2) || u2.startsWith("data:")) continue;
+  refs.add(u2.replace(/^\.\//, "").replace(/^\//, ""));
+}
+const absent = [...refs].filter((f) => !existsSync(join(here, f)));
+ok(absent.length === 0, absent.length === 0
+  ? `${refs.size} assets referenced by index.html, all present on disk`
+  : `NOT ON DISK: ${absent.join(", ")}`);
+
+const filesList: string[] = pkg.files ?? [];
+const unpublished = [...refs].filter((f) => !filesList.includes(`phone-app/${f}`));
+ok(unpublished.length === 0, unpublished.length === 0
+  ? "all of them are listed in package.json \"files\" (so npm ships them)"
+  : `NOT IN package.json files — npm users get a 404: ${unpublished.join(", ")}`);
+
+step("5. the offline shell caches code, never payment data");
 // Re-asserted here because this file is the cheap static gate: the rule belongs
 // next to the other rules about the page itself.
 ok(!/cache\.addAll|caches\.open\(\s*["']payments/.test(sw), "no payment cache in sw.js");
