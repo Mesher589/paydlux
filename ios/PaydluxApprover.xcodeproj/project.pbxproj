@@ -1,0 +1,330 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		00F49B9BFEA48B0C30B2D7F4 /* Seed.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC8660A546A8CD36BFCB4C66 /* Seed.swift */; };
+		3A0DFE2D52B004ECB9D5EB44 /* LinkResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 58240BF79161AE4E9466542F /* LinkResolver.swift */; };
+		3BDAA6448FB3360561E5667F /* Audit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D0E93FCCD7DD2AEE2C7804B /* Audit.swift */; };
+		664980FC32B6B207CFD73DCB /* PaydluxApproverApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0653DF51698750E6EC3A9DD1 /* PaydluxApproverApp.swift */; };
+		7E27A3DF6A9EA6B55CB8E743 /* Hex.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1FC88A2108A5C516F1E7056 /* Hex.swift */; };
+		80182FF92BC75830C36E9433 /* ApproverModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9BD48C0F3680125608F2531 /* ApproverModel.swift */; };
+		B0F5D8E1F17BBCC98A459156 /* WebViewHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1662216779BE50AEF5571A2 /* WebViewHost.swift */; };
+		E537F8C4037D46B63B5E8345 /* Watcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D07207D020972DC56C2EB22 /* Watcher.swift */; };
+		F46D126B3F569128E82E5C3C /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = DEC71DA77ECEB4D4639C8DBD /* KeychainStore.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0653DF51698750E6EC3A9DD1 /* PaydluxApproverApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PaydluxApproverApp.swift; sourceTree = "<group>"; };
+		0D07207D020972DC56C2EB22 /* Watcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Watcher.swift; sourceTree = "<group>"; };
+		27C079FF06B0D00626F0803A /* PaydluxApprover.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PaydluxApprover.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		2D0E93FCCD7DD2AEE2C7804B /* Audit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audit.swift; sourceTree = "<group>"; };
+		58240BF79161AE4E9466542F /* LinkResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LinkResolver.swift; sourceTree = "<group>"; };
+		899F3959491AC4514AE0ABC2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		A9BD48C0F3680125608F2531 /* ApproverModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApproverModel.swift; sourceTree = "<group>"; };
+		CC8660A546A8CD36BFCB4C66 /* Seed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Seed.swift; sourceTree = "<group>"; };
+		DEC71DA77ECEB4D4639C8DBD /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		E1662216779BE50AEF5571A2 /* WebViewHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewHost.swift; sourceTree = "<group>"; };
+		E1FC88A2108A5C516F1E7056 /* Hex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Hex.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		2712409A1D1FC28FD3164BB3 = {
+			isa = PBXGroup;
+			children = (
+				A49200C361C76924D57028ED /* PaydluxApprover */,
+				8987074BBC4B5384273CBAD4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8987074BBC4B5384273CBAD4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				27C079FF06B0D00626F0803A /* PaydluxApprover.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A49200C361C76924D57028ED /* PaydluxApprover */ = {
+			isa = PBXGroup;
+			children = (
+				A9BD48C0F3680125608F2531 /* ApproverModel.swift */,
+				2D0E93FCCD7DD2AEE2C7804B /* Audit.swift */,
+				E1FC88A2108A5C516F1E7056 /* Hex.swift */,
+				899F3959491AC4514AE0ABC2 /* Info.plist */,
+				DEC71DA77ECEB4D4639C8DBD /* KeychainStore.swift */,
+				58240BF79161AE4E9466542F /* LinkResolver.swift */,
+				0653DF51698750E6EC3A9DD1 /* PaydluxApproverApp.swift */,
+				CC8660A546A8CD36BFCB4C66 /* Seed.swift */,
+				0D07207D020972DC56C2EB22 /* Watcher.swift */,
+				E1662216779BE50AEF5571A2 /* WebViewHost.swift */,
+			);
+			path = PaydluxApprover;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F90DEC54AD150AE32E7CF498 /* PaydluxApprover */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CBAFEEFE8D37BDE3C80B13B6 /* Build configuration list for PBXNativeTarget "PaydluxApprover" */;
+			buildPhases = (
+				6D31CAB239ECD4A8BC3347DE /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PaydluxApprover;
+			packageProductDependencies = (
+			);
+			productName = PaydluxApprover;
+			productReference = 27C079FF06B0D00626F0803A /* PaydluxApprover.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AE63D78842BD1BE98E3AE89D /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F90DEC54AD150AE32E7CF498 = {
+						DevelopmentTeam = C268YW8674;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = F7DB14688B68ECEA0A56AE2A /* Build configuration list for PBXProject "PaydluxApprover" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 2712409A1D1FC28FD3164BB3;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8987074BBC4B5384273CBAD4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F90DEC54AD150AE32E7CF498 /* PaydluxApprover */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		6D31CAB239ECD4A8BC3347DE /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				80182FF92BC75830C36E9433 /* ApproverModel.swift in Sources */,
+				3BDAA6448FB3360561E5667F /* Audit.swift in Sources */,
+				7E27A3DF6A9EA6B55CB8E743 /* Hex.swift in Sources */,
+				F46D126B3F569128E82E5C3C /* KeychainStore.swift in Sources */,
+				3A0DFE2D52B004ECB9D5EB44 /* LinkResolver.swift in Sources */,
+				664980FC32B6B207CFD73DCB /* PaydluxApproverApp.swift in Sources */,
+				00F49B9BFEA48B0C30B2D7F4 /* Seed.swift in Sources */,
+				E537F8C4037D46B63B5E8345 /* Watcher.swift in Sources */,
+				B0F5D8E1F17BBCC98A459156 /* WebViewHost.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		7B07F2A2B55B6E581620D2E8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = PaydluxApprover/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.paydlux.approver;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		9E0F6D81A70028C2B95C069C /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = C268YW8674;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		9FB6410DF9EE7A96BDA204F3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = PaydluxApprover/Info.plist;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.paydlux.approver;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A6FC82037D105E125CA6BE46 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = C268YW8674;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CBAFEEFE8D37BDE3C80B13B6 /* Build configuration list for PBXNativeTarget "PaydluxApprover" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7B07F2A2B55B6E581620D2E8 /* Debug */,
+				9FB6410DF9EE7A96BDA204F3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F7DB14688B68ECEA0A56AE2A /* Build configuration list for PBXProject "PaydluxApprover" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A6FC82037D105E125CA6BE46 /* Debug */,
+				9E0F6D81A70028C2B95C069C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AE63D78842BD1BE98E3AE89D /* Project object */;
+}

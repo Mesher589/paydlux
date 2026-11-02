@@ -30,6 +30,14 @@ export type PayResponse<T = string> = {
   tx?: string;
   /** set when a human has to approve */
   handle?: string;
+  /**
+   * Why a payment was refused, as the seller named it: "mandate_refused" (the
+   * seller's spending ceiling — retrying the same request can never work) or
+   * "payment_denied" (a human said no to this one). Without the distinction an
+   * agent retries a refused payment forever, which is exactly what a polite
+   * buyer does.
+   */
+  error?: string;
   /** where a human approves (the seller's desk) */
   desk?: string;
   /** where THIS buyer polls for the answer (the gateway, no key needed) */
@@ -80,7 +88,7 @@ export class PaydluxAgent {
       if (parked.status === 200) {
         return { ok: true, status: 200, data: (j.data ?? j) as T, tx: j.tx };
       }
-      return { ok: false, status: parked.status, handle: j.handle, desk: j.desk,
+      return { ok: false, status: parked.status, handle: j.handle, error: j.error, desk: j.desk,
         statusUrl: j.statusUrl, requirements: reqs,
         reason: j.reason ?? "a human has to approve this payment" };
     }

@@ -12,11 +12,12 @@
 //             On approval the vault releases with principal + approver.
 //
 // Either way the agent's key alone can never move money: threshold is 2.
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash } from "node:crypto";
 import { Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
 import { StellarVault, StellarTxError, hex, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
 import { ApprovalDesk, type DeskStore } from "./desk.ts";
+import type { PolicyEngine } from "./policy.ts";
 
 export const PAY_HEADER = "x-payment";
 
@@ -70,6 +71,11 @@ export type GatewayConfig = {
    * loopback address, which is only useful on one machine.
    */
   deskUrl?: string;
+  /**
+   * The spending mandate. Passed straight to the desk, which is where it is
+   * enforced — see DeskConfig.policy for why the gateway is the wrong place.
+   */
+  policy?: PolicyEngine;
 };
 
 export type PaymentProof = {
@@ -103,6 +109,7 @@ export class Gateway {
       split: cfg.split,
       publicHost: cfg.publicHost,
       decideWithinSeconds: cfg.decideWithinSeconds,
+      policy: cfg.policy,
     });
   }
 
@@ -301,6 +308,20 @@ export class Gateway {
               return;
             }
           }
+          // The seller's own spending mandate refused this one. Retrying the
+          // identical request can never succeed — the ceiling is not going to
+          // move — so re-parking it would loop: park, refuse, park, refuse, with
+          // a fresh handle each time and a queue the human cannot clear. Answer
+          // 402 and make the buyer change the request (a smaller price, a
+          // different route) to ask again.
+          if (hit.mandateBlocked) {
+            res.writeHead(402, { [PAY_HEADER]: JSON.stringify(this.requirements(uri)) });
+            res.end(JSON.stringify({
+              error: "mandate_refused", handle: hit.id,
+              reason: hit.reason ?? "refused by the seller's spending mandate",
+            }));
+            return;
+          }
           // A human said no. Do not silently re-open the same request and nag
           // them with it: the buyer has to change the request to ask again.
           if (hit.status === "denied") {
@@ -386,7 +407,10 @@ export class Gateway {
 
   listen(port: number, getContent: (uri: string) => string = (u) => `payload for ${u} at ${new Date().toISOString()}`) {
     const srv = createServer(this.handler(getContent));
-    return new Promise<void>((resolve) => srv.listen(port, () => resolve()));
+    // Hand the server back. Returning void meant a started gateway could never
+    // be stopped, which left tests holding ports and a seller with no clean way
+    // to change a route without killing the process.
+    return new Promise<Server>((resolve) => srv.listen(port, () => resolve(srv)));
   }
 }
 

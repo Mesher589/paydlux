@@ -77,15 +77,26 @@ export class PolicyEngine {
    * Check a request BEFORE any transaction is built. Returns the reason a
    * payment is refused; the caller must not proceed on ok:false.
    */
-  check(req: { amount: number; payee: string; ttl?: number; liveMandates?: number }): Verdict {
+  check(req: {
+    amount: number; payee: string; ttl?: number; liveMandates?: number;
+    /**
+     * Money not spent yet but already promised: payments a human has approved
+     * and is waiting on a signature for. Without this the ceiling only counts
+     * settled payments, so a seller with a 20/day budget can approve six 4.50
+     * requests, spend six Face ID scans, and watch two of them fail at
+     * submission. Counting the queue refuses the fifth one at the button
+     * instead, which is the point of having a human in the loop.
+     */
+    committed?: number;
+  }): Verdict {
     const p = this.policy;
     if (!(req.amount > 0)) return no("amount", "amount must be greater than zero");
     if (req.amount > p.maxPerPayment) {
       return no("max_per_payment", `${req.amount} exceeds the per-payment ceiling of ${p.maxPerPayment}`);
     }
-    const spent = this.spentToday();
+    const spent = this.spentToday() + (req.committed ?? 0);
     if (spent + req.amount > p.dailyBudget) {
-      return no("daily_budget", `${req.amount} would take today to ${(spent + req.amount).toFixed(2)}, over the ${p.dailyBudget} budget (spent ${spent.toFixed(2)})`);
+      return no("daily_budget", `${req.amount} would take today to ${(spent + req.amount).toFixed(2)}, over the ${p.dailyBudget} budget (${this.spentToday().toFixed(2)} paid${req.committed ? ` + ${req.committed.toFixed(2)} already approved and waiting` : ""})`);
     }
     if (p.denylist?.includes(req.payee)) return no("denylist", `${short(req.payee)} is blocked`);
     if (p.allowlist?.length && !p.allowlist.includes(req.payee)) {
