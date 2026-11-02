@@ -251,12 +251,22 @@ export class ApprovalDesk {
    */
   private sweepExpired(): void {
     const now = Date.now();
+    // A request nobody has even opened yet gets the same window as one the
+    // phone is holding: the seller said how long a human has to decide, and a
+    // parked request past that window is not going to be answered. Leaving it
+    // `pending` forever means the buyer's retry keeps reusing a handle that
+    // will never move, instead of parking a fresh one a human will actually see.
+    const decideWindow = (this.cfg.decideWithinSeconds ?? 1800) * 1000;
     for (const r of this.records.values()) {
-      if (r.status !== "awaiting_phone" && r.status !== "approved") continue;
-      const exp = r.challenge?.summary.expiresAt;
-      if (!exp || Number(exp) * 1000 > now) continue;
+      let deadline: number | null = null;
+      if (r.status === "pending") {
+        deadline = r.at + decideWindow;
+      } else if (r.status === "awaiting_phone" || r.status === "approved") {
+        deadline = r.challenge?.summary.expiresAt ? Number(r.challenge.summary.expiresAt) * 1000 : null;
+      }
+      if (deadline === null || deadline > now) continue;
       r.status = "expired";
-      r.reason = `nobody approved it before the deadline (${new Date(Number(exp) * 1000).toISOString()})`;
+      r.reason = `nobody approved it before the deadline (${new Date(deadline).toISOString()})`;
       console.log(`[desk] ${r.id} expired: the deadline passed with no approval`);
     }
   }
