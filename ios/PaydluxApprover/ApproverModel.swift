@@ -80,6 +80,30 @@ final class ApproverModel: ObservableObject {
         }
     }
 
+    // ------------------------------------------------------------- removal
+    /// Take the approval half of the vault off this device.
+    ///
+    /// One path for every way to do it (the header button, the menu, the enrol
+    /// screen). Scattered copies are how a removal can half-succeed: delete the
+    /// Keychain item, leave the public half behind, and a later screen names a
+    /// key this device no longer holds.
+    func forgetKey() {
+        KeychainStore.delete()
+        IdentityStore.clear()
+        keyAlreadyOnDevice = false
+        keyPublicSummary = nil
+        stage = route(keyExists: false)
+        Audit.stage("\(stage)", link: deskURL != nil, key: false)
+    }
+
+    /// Show the enrol screen without dropping the key that is already stored.
+    /// The screen says what is on the device and offers to replace it.
+    func showEnrol() {
+        keyAlreadyOnDevice = KeychainStore.exists()
+        keyPublicSummary = IdentityStore.publicHex().map { String($0.prefix(8)) + "\u{2026}" }
+        stage = .needsKey
+    }
+
     // -------------------------------------------------------------- enrol
     /// Decode the seed here ONLY to get its 32 raw bytes for the Keychain, then
     /// derive the public half. The seed string itself is dropped at the end of

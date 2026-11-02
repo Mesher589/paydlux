@@ -125,10 +125,7 @@ struct EnrolView: View {
                     .font(.callout)
                     .foregroundStyle(.tint)
                 Button("Forget the stored key", role: .destructive) {
-                    KeychainStore.delete()
-                    IdentityStore.clear()
-                    model.keyAlreadyOnDevice = false
-                    model.keyPublicSummary = nil
+                    model.forgetKey()
                     model.enrolMessage = "Key removed. This device can no longer sign."
                 }
                 .font(.footnote)
@@ -252,6 +249,7 @@ struct DeskView: View {
 
 private struct Header: View {
     @ObservedObject var model: ApproverModel
+    @State private var confirmForget = false
 
     var body: some View {
         HStack {
@@ -270,19 +268,17 @@ private struct Header: View {
                     .background(.red.opacity(0.18), in: Capsule())
                     .foregroundStyle(.red)
             }
+            // Removal has to be visible. It used to live only inside the menu
+            // below, and the web page inside the WebView deliberately hides its
+            // own remove control (it would clear a browser key that does not
+            // exist here and look like it worked). So on the phone there was no
+            // visible way to take the seed off the device — the exact complaint.
+            Button("Remove key", role: .destructive) { confirmForget = true }
+                .font(.footnote)
+                .buttonStyle(.bordered)
             Menu {
-                Button("Re-add key", action: {
-                    model.keyAlreadyOnDevice = KeychainStore.exists()
-                    model.keyPublicSummary = IdentityStore.publicHex().map { String($0.prefix(8)) + "\u{2026}" }
-                    model.stage = .needsKey
-                })
-                Button("Forget this key", role: .destructive) {
-                    // Delete the key AND the public half, so a later screen
-                    // cannot name a key this device no longer holds.
-                    KeychainStore.delete()
-                    IdentityStore.clear()
-                    model.stage = .needsKey
-                }
+                Button("Re-add key", action: { model.showEnrol() })
+                Button("Forget this key", role: .destructive) { confirmForget = true }
                 Button("Reload desk") { model.reloadRequested += 1 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -290,6 +286,16 @@ private struct Header: View {
         }
         .padding(.horizontal, 16).padding(.vertical, 10)
         .background(.bar)
+        // A visible destructive button is only safe if it cannot fire on a
+        // mis-tap: the confirmation names the consequence in plain words.
+        .confirmationDialog("Remove the approver key from this iPhone?",
+                            isPresented: $confirmForget,
+                            titleVisibility: .visible) {
+            Button("Remove key", role: .destructive) { model.forgetKey() }
+            Button("Keep it", role: .cancel) {}
+        } message: {
+            Text("This iPhone can no longer approve payments. The seller must give you a seed again to start over.")
+        }
     }
 }
 
