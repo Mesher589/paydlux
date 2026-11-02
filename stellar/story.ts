@@ -15,27 +15,60 @@
 // there is no HSTS to fall back on. desk.paydlux.com is a named Cloudflare
 // tunnel on the same free tier, so the browser can verify where it is going.
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { PaydluxAgent } from "./agent.ts";
 import { newPortalKey } from "./desk.ts";
+import { deskKeys, ensurePayee, VAULT_FILE_DEFAULT } from "./cli.ts";
 import { PUBLIC_HOST, runTunnel, tunnelLive, tunnelProblem } from "./tunnel.ts";
 
 const GATEWAY_PORT = 4021, DESK_PORT = 4022;
 const PUBLIC = process.argv.includes("--public");
 const TLS = process.argv.includes("--tls");
 const SPLIT = process.argv.includes("--split");
+const FRESH = process.argv.includes("--fresh");
 const log = (...a: unknown[]) => console.log("•", ...a);
 
-const main = async () => {
-  // Preflight before anything is funded. Funding testnet accounts takes ~30s and
-  // prints a portal link; if the tunnel then fails to start, that link and the
-  // approver seed are already on screen pointing at nothing, and the human has
-  // no way to tell the run died. Fail first, explain what is missing.
-  if (TLS) {
-    const problem = tunnelProblem();
-    if (problem) { console.log("\n--tls cannot run here: " + problem); process.exit(1); }
+/**
+ * Two ways to get a vault for a demo run.
+ *
+ * Default: reuse ./paydlux-vault.json. This is the difference between a demo and
+ * a product. A run that mints a new vault every boot hands out a new approver
+ * key every time, so the key already saved on the phone is stale and the ledger
+ * answers BAD_AUTH to a perfectly valid signature — which the app can only
+ * report as "failed". Reusing the file means the phone enrolment survives, the
+ * portal link survives, and money stays where you put it.
+ *
+ * --fresh: mint throwaway keys, for a clip where nothing should persist.
+ */
+async function vaultForRun() {
+  const file = resolve(process.cwd(), VAULT_FILE_DEFAULT);
+  if (!FRESH && existsSync(file)) {
+    const data = JSON.parse(readFileSync(file, "utf8"));
+    const network = (data.network ?? "testnet") as "testnet" | "public";
+    const pub = (seed: string) => Keypair.fromSecret(seed).publicKey();
+    const vault = await StellarVault.load(
+      data.vault, data.token.code, data.token.issuer,
+      {
+        principal: pub(data.keys.principal),
+        approver: data.keys.approver ? pub(data.keys.approver) : undefined,
+        agent: pub(data.keys.agent),
+      } as any,
+      network,
+    );
+    if (data.token.code === "USDC") vault.useUsdc();
+    const payee = await ensurePayee(file, data, vault);
+    log(`reusing the vault in ${VAULT_FILE_DEFAULT} — your phone key stays valid`);
+    return {
+      persistent: true, file, data, vault, network, payee,
+      principalSeed: data.keys.principal as string,
+      agentSeed: data.keys.agent as string,
+      approverSeed: data.keys.approver as string | undefined,
+      portalKey: deskKeys(file, data),
+    };
   }
 
   const issuer = Keypair.random(), principal = Keypair.random();
@@ -47,22 +80,41 @@ const main = async () => {
   await vault.trustToken(seller.publicKey(), "1000", seller);
   await vault.deposit("50", issuer);
   log("vault", vault.address, "balance", await vault.balance());
+  return {
+    persistent: false, file, data: null, vault, network: "testnet" as const, payee: seller.publicKey(),
+    principalSeed: principal.secret(), agentSeed: agent.secret(), approverSeed: approver.secret(),
+    // Any path that puts the desk on a public URL needs the key. --tls is public
+    // by definition, so forgetting --public must not silently remove the gate.
+    // --key lets a test drive the public desk with a key it already knows.
+    portalKey: (PUBLIC || TLS)
+      ? (process.argv.includes("--key") ? process.argv[process.argv.indexOf("--key") + 1] : newPortalKey())
+      : undefined,
+  };
+}
 
-  // Any path that puts the desk on a public URL needs the key. --tls is public
-  // by definition, so forgetting --public must not silently remove the gate.
-  // --key lets a test drive the public desk with a key it already knows.
-  const keyAt = process.argv.indexOf("--key");
-  const portalKey = (PUBLIC || TLS)
-    ? (keyAt > -1 ? process.argv[keyAt + 1] : newPortalKey())
-    : undefined;
+const main = async () => {
+  // Preflight before anything is funded. Funding testnet accounts takes ~30s and
+  // prints a portal link; if the tunnel then fails to start, that link and the
+  // approver seed are already on screen pointing at nothing, and the human has
+  // no way to tell the run died. Fail first, explain what is missing.
+  if (TLS) {
+    const problem = tunnelProblem();
+    if (problem) { console.log("\n--tls cannot run here: " + problem); process.exit(1); }
+  }
+
+  const run = await vaultForRun();
+  const { vault, network, payee, portalKey } = run;
+
   const gw = new Gateway({
-    vault, network: "testnet", payee: seller.publicKey(), deskPort: DESK_PORT,
-    principal: principal.secret(),
+    vault, network, payee, deskPort: DESK_PORT,
+    principal: run.principalSeed,
     // --split is the honest demo: the approver key is printed for the phone and
     // never given to this process. Without it the laptop holds both halves, and
     // "2 of 2" is really 1 of 1.
-    approver: SPLIT ? undefined : approver.secret(),
-    split: SPLIT,
+    // If the approver key is not on this machine, split is not a choice — it is
+    // the only thing that can work. Saying so here beats a BAD_AUTH later.
+    approver: (SPLIT || !run.approverSeed) ? undefined : run.approverSeed,
+    split: SPLIT || !run.approverSeed,
     portalKey,
     // In --tls mode the desk only answers for the tunnel hostname, so a direct
     // hit on the loopback port cannot drive it.
@@ -73,14 +125,14 @@ const main = async () => {
     // the app either way.
     decideWithinSeconds: 3600,
   });
-  gw.agentKeys = [agent.publicKey()];
+  gw.agentKeys = [Keypair.fromSecret(run.agentSeed).publicKey()];
   await gw.listen(GATEWAY_PORT, (u) => `{"ok":true,"data":"market snapshot","served_by":"${u}"}`);
   await gw.desk.listen(DESK_PORT);
 
-  const buyer = new PaydluxAgent({ agentKey: agent.secret() });
+  const buyer = new PaydluxAgent({ agentKey: run.agentSeed });
   const ask = await buyer.get(`http://127.0.0.1:${GATEWAY_PORT}/market/data`);
   log("agent parked", ask.handle, "— waiting for a human");
-  log("seller balance before:", await vault.balance(seller.publicKey()));
+  log("seller balance before:", await vault.balance(payee));
 
   // Bring the public path up BEFORE printing anything a human would act on.
   // Printing the portal link and the approver seed first means a failed run
@@ -109,9 +161,17 @@ const main = async () => {
   if (SPLIT) {
     console.log("\nAPPROVER APP  " + host + "/phone/" +
       (portalKey ? `?k=${portalKey}` : ""));
-    console.log("  approver seed for that device ONLY (this process never sees it):");
-    console.log("  " + approver.secret());
-    console.log("  keep it off this machine. Re-run without --split to skip the phone.");
+    // A persistent vault has already been enrolled on the phone. Printing a seed
+    // again invites a re-enrolment and reads like a secret that must be copied,
+    // so only say what to do.
+    if (run.persistent) {
+      console.log("  this vault is already enrolled on your phone — open the link and tap Review.");
+      if (!run.approverSeed) console.log("  (this machine holds only one of the two keys, as intended)");
+    } else {
+      console.log("  approver seed for that device ONLY (this process never sees it):");
+      console.log("  " + run.approverSeed);
+      console.log("  keep it off this machine. Re-run without --split to skip the phone.");
+    }
   }
   console.log("\nSTORY READY — click Approve in the browser, then ctrl-c to stop.");
 };

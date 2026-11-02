@@ -17,8 +17,8 @@ import { createInterface } from "node:readline/promises";
 import { existsSync, readFileSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { Keypair, Asset } from "@stellar/stellar-sdk";
-import { StellarVault, USDC_ISSUER, type Network } from "./vault.ts";
+import { Account, Keypair, Asset, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
+import { StellarVault, USDC_ISSUER, passphrase, type Network } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { newPortalKey } from "./desk.ts";
 import { PolicyEngine } from "./policy.ts";
@@ -53,7 +53,7 @@ function pub(seed: string) { return Keypair.fromSecret(seed).publicKey(); }
  * boot means the human re-scans a QR every time and any link already opened on
  * a phone stops working mid-payment.
  */
-function deskKeys(path: string, data: any) {
+export function deskKeys(path: string, data: any) {
   if (!data.desk) data.desk = {};
   if (!data.desk.portalKey) {
     data.desk.portalKey = newPortalKey();
@@ -64,14 +64,107 @@ function deskKeys(path: string, data: any) {
   return data.desk.portalKey as string;
 }
 
+/** Does this account already hold the token the vault pays in? */
+async function trusts(vault: StellarVault, address: string) {
+  const acc = await vault.horizon.loadAccount(address).catch(() => null);
+  if (!acc) return false;
+  const code = vault.token.getCode(), issuer = vault.token.getIssuer();
+  return (acc.balances as any[]).some((b) => b.asset_type !== "native"
+    && b.asset_code === code && b.asset_issuer === issuer);
+}
+
+/**
+ * Where the money lands.
+ *
+ * `setup` creates a payee account for you. Two cases break that: a vault made
+ * before the payee existed, and a seller who wants the money in their own
+ * account (a Binance deposit address, an exchange wallet). Both are handled
+ * here, because a payment to an account that does not exist — or that does not
+ * trust the token — fails on the ledger with a code the seller never sees.
+ *
+ * Adding a trustline needs the payee's own key, so for an outside account we can
+ * only check and explain. For a payee we generated, we do it ourselves.
+ */
+export async function ensurePayee(path: string, data: any, vault: StellarVault) {
+  const specified = arg("payee");
+  if (specified) {
+    if (!/^G[A-Z2-7]{55}$/.test(specified)) bad(`--payee must be a Stellar account (G…56 chars), got "${specified}"`);
+    if (specified === vault.address) bad("--payee cannot be the vault itself");
+    if (!(await trusts(vault, specified))) {
+      bad(`${specified} does not hold ${vault.token.getCode()} yet, so a payment to it would be\n  rejected by the ledger (OP_NO_TRUST).\n\n  add a trustline for ${vault.token.getCode()} from ${vault.token.getIssuer()} to that account\n  (the exchange or wallet that owns it does this), or drop --payee and Paydlux will\n  create and manage a payee account for you.`);
+    }
+    data.payee = { address: specified, external: true };
+    writeFileSync(path, JSON.stringify(data, null, 2));
+    chmodSync(path, 0o600);
+    log(`payments land in your account ${specified}`);
+    return specified;
+  }
+
+  if (data.payee?.address && !data.payee.seed) return data.payee.address;
+  if (data.payee?.address && (await trusts(vault, data.payee.address))) return data.payee.address;
+
+  const keys = data.keys;
+  if (!keys.approver) {
+    bad(`this vault has no payee account yet, and creating one needs both human keys —\n  this machine holds only one.\n\n  point the payments at an account you already own that holds ${vault.token.getCode()}:\n\n  paydlux sell --payee G…`);
+  }
+  const kp = Keypair.fromSecret(data.payee?.seed ?? Keypair.random().secret());
+  if (!data.payee?.address) {
+    log(`creating the payee account (2 XLM of ledger rent)…`);
+    const acc = await vault.horizon.loadAccount(vault.address);
+    const tx = new TransactionBuilder(new Account(vault.address, acc.sequence), {
+      fee: "100", networkPassphrase: passphrase((data.network ?? "testnet") as Network),
+    })
+      .addOperation(Operation.createAccount({ destination: kp.publicKey(), startingBalance: "2" }))
+      .setTimeout(120).build();
+    tx.sign(Keypair.fromSecret(keys.principal));
+    tx.sign(Keypair.fromSecret(keys.approver));
+    await vault.horizon.submitTransaction(tx);
+  }
+  if (!(await trusts(vault, kp.publicKey()))) await vault.trustToken(kp.publicKey(), "1000000", kp);
+  data.payee = { address: kp.publicKey(), seed: kp.secret() };
+  writeFileSync(path, JSON.stringify(data, null, 2));
+  chmodSync(path, 0o600);
+  log(`payments land in ${kp.publicKey()}`);
+  return kp.publicKey();
+}
+
+/**
+ * Change what the vault settles in. USDC only: a custom token would need an
+ * issuer key, and holding one quietly is not a decision to make in a flag.
+ * The trustline needs both human keys, so this has to run before
+ * `approver --forget` takes one away.
+ */
+async function switchToken(path: string, data: any, code: string) {
+  if (code !== "USDC") {
+    bad(`switching to a custom token means holding an issuer key. Only USDC can be\n  switched to here. Create a token vault with: paydlux setup --token ${code}`);
+  }
+  const network = (data.network ?? "testnet") as Network;
+  if (!data.keys.approver) bad(`adding the USDC trustline needs both human keys and this machine holds one. Re-run on the machine with both, then use approver --forget.`);
+  const vault = await StellarVault.load(
+    data.vault, data.token.code, data.token.issuer,
+    { principal: pub(data.keys.principal), approver: pub(data.keys.approver), agent: pub(data.keys.agent) } as any,
+    network,
+  );
+  log(`adding a USDC trustline to the vault…`);
+  await vault.trustUsdc(Keypair.fromSecret(data.keys.principal), Keypair.fromSecret(data.keys.approver));
+  data.token = { code: "USDC", issuer: USDC_ISSUER[network] };
+  writeFileSync(path, JSON.stringify(data, null, 2));
+  chmodSync(path, 0o600);
+  log("the vault now settles in Circle USDC");
+}
+
 // ------------------------------------------------------------------------ sell
 
 async function sell() {
   const { path, data } = loadVault();
   const network = (data.network ?? "testnet") as Network;
   const keys = data.keys;
-  const payee = data.payee?.address;
-  if (!payee) bad(`${path} has no payee.address — where should payment land?\n  add it, or re-run: paydlux setup`);
+
+  // Settle in real money instead of the token this vault issued. Needs a
+  // trustline, which needs both human keys, so it happens here — before
+  // `approver --forget` takes one of them away.
+  const wantToken = arg("token")?.toUpperCase();
+  if (wantToken && wantToken !== data.token.code) await switchToken(path, data, wantToken);
 
   const price = arg("price") ?? data.policy?.defaultPrice ?? "1";
   if (!(Number(price) > 0)) bad("--price must be a positive number");
@@ -90,10 +183,15 @@ async function sell() {
 
   const vault = await StellarVault.load(
     data.vault, data.token.code, data.token.issuer,
-    { principal: pub(keys.principal), approver: pub(keys.approver), agent: pub(keys.agent) },
+    { principal: pub(keys.principal), approver: keys.approver ? pub(keys.approver) : undefined, agent: pub(keys.agent) } as any,
     network,
   );
   if (data.token.code === "USDC") vault.useUsdc();
+
+  // Resolve where the money lands before anything starts listening. A parked
+  // payment with no valid payee is a payment that fails an hour later, after
+  // the human already said yes.
+  const payee = await ensurePayee(path, data, vault);
 
   if (network === "public") {
     console.log(`
@@ -205,7 +303,7 @@ async function status() {
   const network = (data.network ?? "testnet") as Network;
   const vault = await StellarVault.load(
     data.vault, data.token.code, data.token.issuer,
-    { principal: pub(data.keys.principal), approver: pub(data.keys.approver), agent: pub(data.keys.agent) },
+    { principal: pub(data.keys.principal), approver: data.keys.approver ? pub(data.keys.approver) : undefined, agent: pub(data.keys.agent) } as any,
     network,
   );
   if (data.token.code === "USDC") vault.useUsdc();
@@ -462,6 +560,7 @@ async function withdraw() {
     } as any,
     (data.network ?? "testnet") as Network,
   );
+
   if (data.token.code === "USDC") vault.useUsdc();
   const bal = await vault.balance();
   const want = all ? bal : amount;
