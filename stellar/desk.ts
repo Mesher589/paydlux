@@ -161,7 +161,7 @@ export type DeskRecord = {
   uri: string;
   price: string;
   body: string;
-  status: "pending" | "awaiting_phone" | "approved" | "denied" | "settled" | "failed";
+  status: "pending" | "awaiting_phone" | "approved" | "denied" | "settled" | "failed" | "expired";
   content?: string;
   tx?: string;
   reason?: string;
@@ -235,7 +235,34 @@ export class ApprovalDesk {
 
   constructor(cfg: DeskConfig) { this.cfg = cfg; }
 
+  /**
+   * A request the human never answered is not waiting forever.
+   *
+   * The transaction the phone signs carries Stellar time bounds, so past
+   * `expiresAt` the ledger rejects it no matter who signs it. Until this sweep
+   * existed such a request stayed `awaiting_phone` for good: it showed in the
+   * queue as approvable, held its price against the daily budget so later
+   * payments were refused for a money that could never move, and the buyer's
+   * retry kept reusing the dead handle instead of parking a fresh one. Three
+   * wrong behaviours from one missing transition, which is why the transition
+   * lives here rather than in the page that draws the word "expired".
+   *
+   * Called from every read path, so no caller can observe a stale state.
+   */
+  private sweepExpired(): void {
+    const now = Date.now();
+    for (const r of this.records.values()) {
+      if (r.status !== "awaiting_phone" && r.status !== "approved") continue;
+      const exp = r.challenge?.summary.expiresAt;
+      if (!exp || Number(exp) * 1000 > now) continue;
+      r.status = "expired";
+      r.reason = `nobody approved it before the deadline (${new Date(Number(exp) * 1000).toISOString()})`;
+      console.log(`[desk] ${r.id} expired: the deadline passed with no approval`);
+    }
+  }
+
   enqueue(uri: string, price: string, body: string, content: string, key?: string): string {
+    this.sweepExpired();
     // Re-use an existing request for the same buyer + body + price. A buyer who
     // retries after a human approved must get their content, not a second
     // payment waiting in the queue. Settled records are NOT reused here — the
@@ -252,6 +279,7 @@ export class ApprovalDesk {
 
   /** Every record carrying this key, newest first. */
   allByKey(key: string): DeskRecord[] {
+    this.sweepExpired();
     if (!key) return [];
     return [...this.records.values()].filter((r) => r.key === key).sort((a, b) => b.at - a.at);
   }
@@ -260,8 +288,8 @@ export class ApprovalDesk {
     return this.allByKey(key)[0] ?? null;
   }
 
-  get(id: string) { return this.records.get(id) ?? null; }
-  list(): DeskRecord[] { return [...this.records.values()]; }
+  get(id: string) { this.sweepExpired(); return this.records.get(id) ?? null; }
+  list(): DeskRecord[] { this.sweepExpired(); return [...this.records.values()]; }
 
   /**
    * The human clicked Approve.
@@ -319,6 +347,7 @@ export class ApprovalDesk {
   }
 
   async approve(id: string) {
+    this.sweepExpired();
     const rec = this.records.get(id);
     if (!rec) throw new Error("unknown handle " + id);
     if (rec.status !== "pending") throw new Error(`already ${rec.status}`);
@@ -387,6 +416,7 @@ export class ApprovalDesk {
    * ledger rejects it if the signature is not over this exact transaction.
    */
   async complete(id: string, signedXdr: string) {
+    this.sweepExpired();
     const rec = this.records.get(id);
     if (!rec) throw new Error("unknown handle " + id);
     if (rec.status !== "awaiting_phone") throw new Error(`not awaiting a phone signature (it is ${rec.status})`);

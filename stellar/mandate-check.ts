@@ -163,6 +163,32 @@ const main = async () => {
   ok(aj.handle === pj.handle, "same handle — the queue does not grow on every retry");
   await new Promise<void>((r) => gwSrv.close(() => r()));
 
+  step("10. a request nobody answered dies instead of haunting the queue");
+  // The transaction the phone signs carries Stellar time bounds, so past its
+  // deadline the ledger rejects it whoever signs. Before the sweep such a
+  // request stayed `awaiting_phone` forever: it was drawn as approvable, it
+  // held its price against the daily budget so later payments were refused for
+  // money that could never move, and the buyer's retry reused the dead handle.
+  const eDesk = new ApprovalDesk({
+    vault, payee: seller.publicKey(), principal: principal.secret(),
+    split: true, port: 4193, portalKey: newPortalKey(), decideWithinSeconds: 1,
+    policy: new PolicyEngine({ maxPerPayment: 10, dailyBudget: 20 }),
+  });
+  const dead = eDesk.enqueue("GET https://api.example.com/dead", "9.00", "ignored", "payload");
+  const deadAsked = await eDesk.approve(dead);
+  ok(deadAsked!.status === "awaiting_phone", "the phone was asked, then never answered");
+  ok(eDesk.list().filter((r) => r.status === "awaiting_phone").length === 1, "one request is live");
+  await new Promise((res) => setTimeout(res, 2500));
+  const after = eDesk.get(dead)!;
+  ok(after.status === "expired", `it is now ${after.status}, not approvable`);
+  ok(/deadline/.test(after.reason ?? ""), `with a reason: ${after.reason}`);
+  // The budget it was holding is free again: 9.00 against a 20/day ceiling now
+  // leaves room for another 9.00, which it did not while the dead one counted.
+  const fresh = eDesk.enqueue("GET https://api.example.com/fresh", "9.00", "after", "payload");
+  const freshAsked = await eDesk.approve(fresh);
+  ok(freshAsked!.status === "awaiting_phone", "the freed budget lets the next request through");
+  await eDesk.close();
+
   await desk.close();
   console.log(`\n${fail === 0 ? "ALL CHECKS PASSED" : "FAILURES: " + fail} \u2014 the mandate holds at both doors.`);
   console.log(`pass ${pass}  fail ${fail}`);
