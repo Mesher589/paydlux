@@ -275,6 +275,16 @@ export class StellarVault {
    * query away, and it survives restarts, crashes and redeploys.
    */
   async paidToday(payee: string): Promise<Amount> {
+    // A payee that is not an address string compares unequal to every `to`
+    // field on the ledger, so the walk finds nothing and reports 0 spent — a
+    // budget that reads as unspent, which is the exact failure this query
+    // exists to prevent. Fail loudly instead.
+    if (typeof payee !== "string" || !/^G[A-Z2-7]{55}$/.test(payee)) {
+      throw new Error(`paidToday needs a payee account id (G…56 chars), got `
+        + (payee && typeof payee === "object"
+            ? `an object — pass payee.address, not the payee record`
+            : JSON.stringify(payee)));
+    }
     const start = new Date(); start.setUTCHours(0, 0, 0, 0);
     let total = 0;
     let cursor: string | undefined;
