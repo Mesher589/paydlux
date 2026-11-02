@@ -116,7 +116,18 @@ enum KeychainStore {
             kSecReturnAttributes as String: true,
             kSecUseAuthenticationContext as String: context,
         ]
-        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
+        // `== errSecSuccess` here is wrong, and the wrongness is invisible: an
+        // item carrying .biometryCurrentSet answers a no-prompt lookup with
+        // errSecInteractionNotAllowed, not errSecSuccess. The item EXISTS; the
+        // OS simply refuses to hand over attributes without a face. Reading that
+        // as "no key" sends a person who already enrolled to the seed screen on
+        // every relaunch — which looks exactly like the key was never added, and
+        // leaves no way to remove it because the menu that removes it lives on
+        // the screen they can no longer reach.
+        switch SecItemCopyMatching(query as CFDictionary, nil) {
+        case errSecSuccess, errSecInteractionNotAllowed: return true
+        default:                                         return false
+        }
     }
 
     static func delete() {

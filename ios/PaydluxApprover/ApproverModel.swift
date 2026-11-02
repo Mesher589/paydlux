@@ -33,6 +33,11 @@ final class ApproverModel: ObservableObject {
     @Published var webError: String?
     @Published var waiting: Int = 0
     @Published var reloadRequested: Int = 0
+    /// Whether the Keychain holds a key while the enrol screen is on screen.
+    /// The screen must not claim there is no key when there is one, and the
+    /// user needs a way to remove it from here.
+    @Published var keyAlreadyOnDevice: Bool = false
+    @Published var keyPublicSummary: String?
 
     private(set) var deskURL: URL?
 
@@ -44,6 +49,11 @@ final class ApproverModel: ObservableObject {
             Audit.linkAccepted(host: saved.host ?? "?")
         }
         let hasKey = KeychainStore.exists()
+        keyAlreadyOnDevice = hasKey
+        // The public half is not secret and lives outside the Keychain, so it
+        // can be shown on the enrol screen without a biometric prompt. Showing
+        // it is what lets a person tell "wrong key" from "no key".
+        keyPublicSummary = IdentityStore.publicHex().map { String($0.prefix(8)) + "\u{2026}" }
         let next = route(keyExists: hasKey)
         stage = next
         Audit.stage("\(next)", link: deskURL != nil, key: hasKey)
@@ -87,7 +97,10 @@ final class ApproverModel: ObservableObject {
             // result. A wrong public half is caught later: the app verifies the
             // signature against it before sending.
             let key = try Curve25519.Signing.PrivateKey(rawRepresentation: raw)
-            IdentityStore.save(publicHex: Hex.encode(Array(key.publicKey.rawRepresentation)))
+            let pubHex = Hex.encode(Array(key.publicKey.rawRepresentation))
+            IdentityStore.save(publicHex: pubHex)
+            keyAlreadyOnDevice = true
+            keyPublicSummary = String(pubHex.prefix(8)) + "\u{2026}"
             // Straight to the link prompt when this was the first run: the key
             // is in, and the only thing missing is which desk to talk to.
             stage = deskURL != nil ? .ready : .needsLink
