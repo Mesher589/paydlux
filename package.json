@@ -50,7 +50,8 @@
     "typecheck": "tsc --noEmit",
     "app": "tsx stellar/cli.ts",
     "app:mainnet": "tsx stellar/cli.ts setup --mainnet",
-    "test:showcase": "tsx stellar/showcase-check.ts"
+    "test:showcase": "tsx stellar/showcase-check.ts",
+    "test:native": "tsx stellar/native-check.ts"
   },
   "keywords": [
     "x402",
