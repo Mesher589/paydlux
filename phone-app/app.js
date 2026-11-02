@@ -19,9 +19,14 @@
 
 const X = globalThis.PaydluxXdr;
 const $ = (id) => document.getElementById(id);
-const show = (id, on = true) => $(id).classList.toggle("hidden", !on);
-const set = (id, v) => { $(id).textContent = v == null || v === "" ? "\u2014" : String(v); };
-const err = (id, msg) => { $(id).textContent = msg || ""; };
+// Null-safe on purpose. `$(id).classList` on a missing id throws, and a throw
+// here aborts the rest of the boot sequence — which is how one stale id in
+// paintKeyState left the queue panel permanently hidden and the Approve buttons
+// unreachable in the native app. A missing element is a cosmetic miss, not a
+// reason to stop rendering the queue.
+const show = (id, on = true) => { const el = $(id); if (el) el.classList.toggle("hidden", !on); };
+const set = (id, v) => { const el = $(id); if (el) el.textContent = v == null || v === "" ? "\u2014" : String(v); };
+const err = (id, msg) => { const el = $(id); if (el) el.textContent = msg || ""; };
 
 // A short buzz on the two moments that matter. iOS ignores vibrate(); Android
 // and desktop honour it. Guarded so it is never an uncaught error.
@@ -188,8 +193,11 @@ function paintKeyState() {
   if (have) {
     set("who", approverPublic || "held by this app");
     // In the native app the seed lives in the Keychain and the page has no way
-    // to write it, so the paste box would be a lie.
-    if (native.available()) show("seedRow", false);
+    // to write it, so the paste box would be a lie — and the remove button
+    // worse: idbDel() below clears the browser key, which does not exist here,
+    // so it would look like it worked while the real key stayed on the device.
+    // Removal belongs to the app (its menu, and the enrol screen), not the page.
+    if (native.available()) show("forget", false);
   }
 }
 

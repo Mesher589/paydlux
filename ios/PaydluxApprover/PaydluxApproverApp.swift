@@ -112,6 +112,28 @@ struct EnrolView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text("Add your approver key").font(.title2.bold())
+
+            // A key already on the device has to be visible here. Without this
+            // line the screen reads "you have no key" while the Keychain holds
+            // one, and the only way to remove a key lived in a menu on a screen
+            // this state makes unreachable — so a person who wants to start over
+            // cannot. Replace is the safe path: it deletes then stores.
+            if model.keyAlreadyOnDevice {
+                Text("A key is already stored on this device"
+                     + (model.keyPublicSummary.map { " (\($0))" } ?? "")
+                     + ". Adding a new one replaces it.")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Button("Forget the stored key", role: .destructive) {
+                    KeychainStore.delete()
+                    IdentityStore.clear()
+                    model.keyAlreadyOnDevice = false
+                    model.keyPublicSummary = nil
+                    model.enrolMessage = "Key removed. This device can no longer sign."
+                }
+                .font(.footnote)
+            }
+
             Text("""
             Paste the seed the seller gave you, once.
 
@@ -249,7 +271,11 @@ private struct Header: View {
                     .foregroundStyle(.red)
             }
             Menu {
-                Button("Re-add key", action: { model.stage = .needsKey })
+                Button("Re-add key", action: {
+                    model.keyAlreadyOnDevice = KeychainStore.exists()
+                    model.keyPublicSummary = IdentityStore.publicHex().map { String($0.prefix(8)) + "\u{2026}" }
+                    model.stage = .needsKey
+                })
                 Button("Forget this key", role: .destructive) {
                     // Delete the key AND the public half, so a later screen
                     // cannot name a key this device no longer holds.

@@ -41,7 +41,7 @@
     "test:stellar": "tsx stellar/demo.ts",
     "test:portal": "tsx stellar/xss-check.ts",
     "test:mandate": "tsx stellar/mandate-check.ts",
-    "test:phone": "tsx stellar/phone-check.ts && tsx stellar/desk-split-check.ts && tsx stellar/mandate-check.ts && tsx stellar/e2e-phone.ts && tsx phone-app/xdr-check.ts && tsx phone-app/app-check.ts && tsx phone-app/desk-app-check.ts && tsx ios/bridge-check.ts",
+    "test:phone": "tsx stellar/phone-check.ts && tsx stellar/desk-split-check.ts && tsx stellar/mandate-check.ts && tsx stellar/e2e-phone.ts && tsx phone-app/xdr-check.ts && tsx phone-app/app-check.ts && tsx phone-app/desk-app-check.ts && tsx ios/bridge-check.ts && tsx phone-app/ui-check.ts",
     "test:ios": "tsx ios/bridge-check.ts",
     "test:link": "swiftc ios/PaydluxApprover/LinkResolver.swift ios/Checks/linkcheck/main.swift -o \"$TMPDIR/linkcheck\" && \"$TMPDIR/linkcheck\"",
     "test:seed": "DEVELOPER_DIR=/Library/Developer/CommandLineTools /usr/bin/swiftc -target arm64-apple-macosx14.0 ios/PaydluxApprover/Seed.swift ios/PaydluxApprover/Hex.swift ios/Checks/main.swift -o \"$TMPDIR/seedcheck\" && \"$TMPDIR/seedcheck\"",
