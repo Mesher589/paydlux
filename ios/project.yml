@@ -1,0 +1,81 @@
+# Paydlux Approver — iOS project definition (XcodeGen)
+#
+# Why a generated project and not a committed .xcodeproj: a .xcodeproj is a
+# large, churning XML bundle whose diffs are unreadable, and its signing
+# settings are machine-specific. This file is the readable source; `xcodegen
+# generate` produces the project. See README.md for the one command.
+name: PaydluxApprover
+options:
+  bundleIdPrefix: com.paydlux
+  deploymentTarget:
+    iOS: "16.0"          # WKScriptMessageHandlerWithReply (14) + Live Activities era APIs
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_USER_SCRIPT_SANDBOXING: "NO"
+    CODE_SIGN_STYLE: Automatic
+    # Set this to your own Team ID after opening the project once, or pass
+    # DEVELOPMENT_TEAM in the environment. Free personal Apple ID works — the
+    # app does not need the App Store.
+    DEVELOPMENT_TEAM: "C268YW8674"
+targets:
+  PaydluxApprover:
+    type: application
+    platform: iOS
+    sources:
+      - PaydluxApprover
+    info:
+      path: PaydluxApprover/Info.plist
+      properties:
+        CFBundleDisplayName: Paydlux
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        # The app is a WebView over the seller's desk. This is the only origin
+        # it will ever talk to; ATS refuses everything else.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+        # A custom scheme so a link the seller sends can open THIS app. Without
+        # it, tapping an https://desk.paydlux.com link in Mail opens Safari:
+        # universal links need an apple-app-site-association file plus an
+        # associated-domains entitlement, which a free personal Apple team cannot
+        # sign. paydlux://desk?k=... works today, and capture() maps it onto the
+        # pinned https origin rather than trusting the scheme.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.paydlux.approver
+            CFBundleURLSchemes: [paydlux]
+        # Local notifications only. No push server, no third-party SDK, no
+        # analytics: an approver app that phones home is a liability, not a
+        # feature. See README for why this is local and not APNs.
+        UIBackgroundModes: [fetch]
+        # BGTaskScheduler refuses any identifier not declared here, so the
+        # background poll that drives the "a payment is waiting" notification
+        # needs this list to match Watcher.fetchID exactly.
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.paydlux.approver.fetch
+        # Declare all four explicitly. An app that supports a subset without
+        # opting out of full screen is rejected at App Store review, and the
+        # warning during build is the only early sign you get.
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+          - UIInterfaceOrientationPortraitUpsideDown
+        ITSAppUsesNonExemptEncryption: false
+        # Face ID / Touch ID prompt text. Shown by the system, not by us.
+        NSFaceIDUsageDescription: >-
+          Paydlux asks for Face ID before it will load or use the key that
+          approves payments. The key itself never leaves this device.
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.paydlux.approver
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # The approver key is Ed25519. Nothing here needs the Secure Enclave
+        # (which only does P-256) — see ABOUT.swift for why.

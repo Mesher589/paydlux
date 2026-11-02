@@ -13,3 +13,6 @@ paydlux-vault.json
 *.vault.json
 dist/
 paydlux-fund-wallet.json
+
+# local scratch scripts that hold testnet agent keys — never commit
+tmp/

@@ -10,13 +10,19 @@
 //
 //   npx tsx phone-app/desk-app-check.ts
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarVault } from "../stellar/vault.ts";
 import { ApprovalDesk, newPortalKey } from "../stellar/desk.ts";
 
 const require = createRequire(import.meta.url);
 require("./xdr.js");
+
+// The same directory the desk serves from, resolved the same way desk.ts does,
+// so the hot-reload check below edits a file the desk will actually look at.
+const APP_DIR_FOR_CHECK = join(dirname(fileURLToPath(import.meta.url)), "..", "phone-app");
 const X: any = (globalThis as any).PaydluxXdr;
 
 let pass = 0, fail = 0;
@@ -223,6 +229,75 @@ const main = async () => {
   })).json();
   ok(wrongOut.status === "failed", `a signature from the wrong approver: ${wrongOut.status}`);
   ok(await vault.balance(seller.publicKey()) === "2.7500000", "and nothing moved");
+
+  step("12. the offline shell caches code and never caches money");
+  // The service worker is what lets an installed app open from the home screen
+  // with no signal. It must cache only the app's own files. A cached /queue or
+  // /challenge response is a stale payment a person could approve, which is the
+  // exact failure this app exists to prevent.
+  const sw = await get("/phone/sw.js");
+  ok(sw.status === 200 && sw.type?.includes("javascript"), `sw.js is served: ${sw.status}`);
+  const swBody = sw.body;
+  ok(/paydlux-approver-v\d/.test(swBody), "the shell cache is versioned, so old signing code is dropped");
+  ok(/caches\.delete/.test(swBody), "and activate deletes every older cache");
+  ok(/url\.search\s*!==\s*""/.test(swBody),
+    "any URL with a query string is never cached — that is where ?k= lives");
+  ok(!/\.addAll\s*\(/.test(swBody),
+    "no blanket cache-all: only an explicit list of shell files is cached");
+  for (const route of ["/queue", "/challenge", "/signed", "/list", "/approve", "/deny"]) {
+    ok(!new RegExp(`["'\`]\\/?${route}`).test(swBody),
+      `the worker never names ${route} as a cacheable path`);
+  }
+  ok(/cache:\s*"reload"/.test(swBody),
+    "the shell is fetched network-first, so a security fix lands on the next open");
+  const manifest = await get("/phone/manifest.webmanifest");
+  ok(manifest.status === 200 && /"display":\s*"standalone"/.test(manifest.body),
+    "the manifest still installs standalone");
+  ok(/"id":\s*"\/phone\/"/.test(manifest.body),
+    "and pins an id, so reinstalling reuses the same installed app instead of forking a new one");
+
+  step("13. the approve gesture costs attention, the reject gesture does not");
+  // Approving money is the expensive action. A single tap on a 44px button in
+  // the dark is how a pocket approves a payment nobody read.
+  ok(/HOLD_MS\s*=\s*\d{4}/.test(appjs.body), "approve is a timed hold, not a tap");
+  ok(/pointerdown/.test(appjs.body) && /pointerup/.test(appjs.body)
+    && /pointercancel/.test(appjs.body),
+    "the hold releases on lift and on interrupt, so an interrupted hold signs nothing");
+  ok(/signAndSubmit\(\)/.test(appjs.body), "and it is the hold completing that signs");
+  ok(/id="reject"[^>]*>\s*Reject/.test(shell.body) && !/hold/i.test(
+    shell.body.slice(shell.body.indexOf('id="reject"'), shell.body.indexOf('id="reject"') + 120)),
+    "Reject stays a single tap: the safe answer must always be the cheap one");
+  ok(/confirm\(/.test(appjs.body),
+    "keyboard and VoiceOver users get an explicit confirm instead of a hold they cannot perform");
+
+  step("14. the app tells you what is waiting without being opened");
+  ok(/setAppBadge|clearAppBadge/.test(appjs.body),
+    "the home-screen icon badge carries the count of live requests");
+  ok(/visibilitychange/.test(appjs.body) && /document\.hidden/.test(appjs.body),
+    "polling stops when the app is hidden, so a phone in a pocket is not waking the radio");
+  ok(/navigator\.onLine|addEventListener\("offline"/.test(appjs.body),
+    "and a dead desk is reported as offline, not as an empty queue");
+
+  step("15. a patched app file reaches the phone without a desk restart");
+  // The service worker is network-first so a security fix lands on the next
+  // open. That promise is only real if the desk itself serves the new bytes.
+  // A per-process static cache looked like a harmless optimisation and was a
+  // way to keep shipping old signing code from a running desk for days.
+  const hot = "hotcheck-tmp.js";
+  const hotPath = join(APP_DIR_FOR_CHECK, hot);
+  try {
+    writeFileSync(hotPath, "// v1\nexport const v = 1;\n");
+    const first = await get("/phone/" + hot);
+    writeFileSync(hotPath, "// v2\nexport const v = 2;\n");
+    const second = await get("/phone/" + hot);
+    ok(first.status === 200 && first.body.includes("v = 1"), "the first read serves v1");
+    ok(second.status === 200 && second.body.includes("v = 2"),
+      "and after an edit, the same running desk serves v2");
+    ok(second.type?.includes("javascript"), "still served as JavaScript: " + second.type);
+  } finally {
+    try { unlinkSync(hotPath); } catch { /* already gone */ }
+  }
+  ok((await get("/phone/" + hot)).status === 404, "and the temp file is cleaned up");
 
   await desk.close();
   console.log(`\n${fail ? "FAILURES: " + fail : "ALL CHECKS PASSED"}  (${pass} passed)\n`);

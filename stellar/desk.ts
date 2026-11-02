@@ -10,7 +10,7 @@
 //   - a stolen phone cannot approve alone
 //   - the approval is a real ledger signature, not a database flag
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes, timingSafeEqual } from "node:crypto";
@@ -18,6 +18,7 @@ import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { TransactionBuilder } from "@stellar/stellar-sdk";
 import { passphrase } from "./vault.ts";
 import type { StellarVault } from "./vault.ts";
+import type { PolicyEngine } from "./policy.ts";
 import { portalPage } from "./portal.ts";
 import {
   createApprovalChallenge, submitApproved, challengeQrPayload,
@@ -32,30 +33,49 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const APP_DIR = join(HERE, "..", "phone-app");
 const PORTAL_DIR = join(HERE, "..", "portal-app");
 const staticCache = new Map<string, string | Buffer>();
+// mtime of the bytes held in staticCache, so an edited file is picked up on the
+// next request instead of after a restart. See readStatic.
+const staticStamp = new Map<string, number>();
 
 /**
- * Static files are read on each process start rather than bundled, so the desk
- * and its front ends can never drift apart. The name is stripped to [a-z.]
- * before it touches a path, so a request can't walk out of the directory.
+ * Static files are read from disk, not bundled, so the desk and its front ends
+ * can never drift apart. The name is stripped to [a-z._-] before it touches a
+ * path, so a request can't walk out of the directory.
  *
  * PNGs are returned as bytes: reading an image as utf8 text replaces every
  * invalid sequence with U+FFFD and ships a corrupt icon to the phone.
+ *
+ * The cache is keyed on the file's mtime, not just its name. Caching once per
+ * process looked fine and was not: the approver's service worker is deliberately
+ * network-first so that a security fix reaches an installed phone on the next
+ * open, and a desk that holds the old bytes in memory until it restarts breaks
+ * exactly that promise. A patched app.js on disk would have sat invisible for
+ * days behind a running desk. One stat() per request is cheap; a stale approver
+ * page that keeps signing old-style transactions is not.
  */
 function readStatic(dir: string, name: string, label: string): string | Buffer | null {
   const safe = name.replace(/[^a-z0-9._-]/g, "");
-  const hit = staticCache.get(dir + "/" + safe);
-  if (hit) return hit;
+  const file = join(dir, safe);
+  let stamp: number;
+  try {
+    stamp = statSync(file).mtimeMs;
+  } catch {
+    return null;   // missing file: a 404, not a crash
+  }
+  const key = dir + "/" + safe;
+  const hit = staticCache.get(key);
+  if (hit && staticStamp.get(key) === stamp) return hit;
   let text: string | Buffer;
   try {
-    text = safe.endsWith(".png")
-      ? readFileSync(join(dir, safe))
-      : readFileSync(join(dir, safe), "utf8");
+    text = safe.endsWith(".png") ? readFileSync(file) : readFileSync(file, "utf8");
   } catch {
-    // A missing file is a 404, not a crash. Throwing here took the whole desk
-    // down over one bad URL: the request handler is not a place to raise.
+    // Unreadable between the stat and the read, or not a file at all. The
+    // request handler is not a place to raise: one bad URL must not take the
+    // whole desk down.
     return null;
   }
-  staticCache.set(dir + "/" + safe, text);
+  staticCache.set(key, text);
+  staticStamp.set(key, stamp);
   return text;
 }
 const readAppFile = (name: string) => readStatic(APP_DIR, name, "approver app");
@@ -151,6 +171,13 @@ export type DeskRecord = {
    * twice and the buyer never gets the content they already bought.
    */
   key?: string;
+  /**
+   * The failure came from the seller's spending mandate, not from the ledger.
+   * The gateway needs this distinction: a ledger failure is worth retrying, a
+   * mandate refusal never changes, so re-parking the same request would loop
+   * forever — refuse, and make the buyer change the request to ask again.
+   */
+  mandateBlocked?: boolean;
   /** split mode: what the phone is asked to sign, and what it sent back */
   challenge?: ApprovalChallenge;
   qr?: string;
@@ -186,6 +213,18 @@ export type DeskConfig = {
    * gives you. Pinning the Host means the only way in is through the tunnel.
    */
   publicHost?: string;
+  /**
+   * The spending mandate. Optional only so existing tests keep compiling; every
+   * real seller passes one.
+   *
+   * Enforced HERE, at the moment money moves, not in the gateway. The gateway is
+   * the buyer's surface: it can be restarted, bypassed, or run by someone who
+   * forgot to configure it. The desk is the one place every payment passes
+   * through on its way to the ledger — dev mode signs and submits here, split
+   * mode submits the phone's signature here — so this is the only place a
+   * ceiling can actually hold.
+   */
+  policy?: PolicyEngine;
 };
 
 export class ApprovalDesk {
@@ -233,10 +272,59 @@ export class ApprovalDesk {
    *             principal only, and hand it to the phone. The money moves when
    *             /signed comes back with the phone's signature.
    */
+  /**
+   * The mandate check, in one place, called before money moves.
+   *
+   * Returns null when the payment is allowed, or the reason it is not. The
+   * record is marked failed so the buyer's poll gets a real answer instead of a
+   * timeout, and the reason is surfaced to the human rather than logged only.
+   *
+   * Why this exists at all: `--max` and `--daily` were printed in the seller's
+   * banner and never applied to anything. A ceiling nobody enforces is worse
+   * than no ceiling, because the seller believes they have one.
+   */
+  private mandateBlock(rec: DeskRecord, when: string): string | null {
+    const policy = this.cfg.policy;
+    if (!policy) return null;
+    // Approvals already made that have not settled yet. Those are promises the
+    // seller has already given, so a new one has to fit alongside them.
+    // `pending` deliberately does NOT count: that is a request nobody has
+    // approved, and counting the whole queue would refuse the first approval
+    // just because more requests exist than the budget can cover.
+    const committed = this.list().reduce((sum, r) =>
+      (r.id !== rec.id && (r.status === "awaiting_phone" || r.status === "approved"))
+        ? sum + Number(r.price) : sum, 0);
+    const verdict = policy.check({
+      amount: Number(rec.price),
+      payee: this.cfg.payee,
+      ttl: this.cfg.decideWithinSeconds,
+      committed,
+    });
+    if (verdict.ok) return null;
+    rec.status = "failed";
+    rec.reason = `mandate refused (${verdict.rule}): ${verdict.detail}`;
+    rec.mandateBlocked = true;
+    rec.challenge = undefined;
+    rec.signedXdr = undefined;
+    console.log(`[desk] ${rec.id} ${when}: ${rec.reason}`);
+    return rec.reason;
+  }
+
+  /** The mandate has been satisfied: count the money as spent. */
+  private recordSpend(rec: DeskRecord, tx: string) {
+    this.cfg.policy?.record({
+      at: Date.now(), amount: Number(rec.price), payee: this.cfg.payee,
+      uri: rec.uri, mandateHash: tx,
+    });
+  }
+
   async approve(id: string) {
     const rec = this.records.get(id);
     if (!rec) throw new Error("unknown handle " + id);
     if (rec.status !== "pending") throw new Error(`already ${rec.status}`);
+    // Check before asking the phone. A human who approves a payment the mandate
+    // will refuse has spent a Face ID scan and a signature for nothing.
+    if (this.mandateBlock(rec, "refused before asking")) return rec;
     if (this.cfg.split) return this.requestPhoneSignature(rec);
     if (!this.cfg.principal || !this.cfg.approver) {
       rec.status = "failed";
@@ -252,6 +340,7 @@ export class ApprovalDesk {
       );
       rec.status = "settled";
       rec.tx = String(res?.hash ?? "");
+      this.recordSpend(rec, rec.tx);
     } catch (e) {
       rec.status = "failed";
       rec.reason = (e as Error).message;
@@ -315,11 +404,17 @@ export class ApprovalDesk {
       return rec;
     }
 
+    // Re-check at the last possible moment. The budget was verified when the
+    // phone was asked; a day is long and other payments have been approved since.
+    // Better to refuse now than to submit a payment the mandate forbids.
+    if (this.mandateBlock(rec, "refused at submission")) return rec;
+
     rec.signedXdr = signedXdr;
     try {
       const res = await submitApproved(signedXdr, this.cfg.vault.network, this.cfg.vault.horizon);
       rec.status = "settled";
       rec.tx = res.hash;
+      this.recordSpend(rec, res.hash);
       // The money moving is the one event a seller should never have to
       // discover by refreshing a page.
       console.log(`[desk] ${rec.id} PAID ${rec.price} ${this.cfg.vault.token.getCode()} — ledger ${rec.tx}`);

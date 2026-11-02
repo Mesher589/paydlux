@@ -181,6 +181,19 @@ async function sell() {
   const daily = Number(arg("daily") ?? data.policy?.dailyBudget ?? 10);
   const policy = new PolicyEngine({ maxPerPayment: maxPer, dailyBudget: daily });
 
+  // A ceiling below the price blocks every payment, and the failure looks like
+  // a bug in the desk: the buyer waits, the human never sees an approvable
+  // item, and the log says "mandate refused". Say it now, before anything is
+  // started, because this is a mistake in the flags and not in the product.
+  const priceNum = Number(price);
+  if (!(priceNum > 0)) bad(`--price ${price} is not a number greater than zero.`);
+  if (priceNum > maxPer) {
+    bad(`--price ${price} is above --max ${maxPer}, so every payment would be refused by your own mandate.\n  raise --max to at least ${price} (for example --max ${price}) or lower --price.`);
+  }
+  if (priceNum > daily) {
+    bad(`--price ${price} is above --daily ${daily}: one payment would spend the whole day's budget and the second would be refused.\n  set --daily to at least ${price}.`);
+  }
+
   const vault = await StellarVault.load(
     data.vault, data.token.code, data.token.issuer,
     { principal: pub(keys.principal), approver: keys.approver ? pub(keys.approver) : undefined, agent: pub(keys.agent) } as any,
@@ -233,6 +246,8 @@ async function sell() {
     publicHost,
     agentKeys: [pub(keys.agent)],
     routes: [{ uri, price, mode, holdSeconds: Number(arg("hold") ?? 3600) }],
+    // The banner prints these numbers. This line is what makes them true.
+    policy,
   });
 
   let tunnel: ReturnType<typeof runTunnel> | null = null;
