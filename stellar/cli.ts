@@ -237,6 +237,29 @@ async function sell() {
   // the human already said yes.
   const payee = await ensurePayee(path, data, vault);
 
+  // The daily budget has to survive a restart. Counting only what this process
+  // has seen means `ctrl-c`, `npm run app` again, and the day's total is back to
+  // zero — so the mandate in the banner is a promise the code does not keep.
+  // Ask the ledger what the vault already paid this payee today and start from
+  // there. If the query fails, refuse to start rather than run with a budget
+  // that silently reads as unspent.
+  let alreadyPaid = 0;
+  try {
+    alreadyPaid = Number(await vault.paidToday(payee));
+  } catch (e: any) {
+    bad(`cannot read today's spending from the ledger (${e?.message ?? e}).\n  `
+      + `the daily budget of ${daily} cannot be enforced without it, so nothing was started. `
+      + `Check the network and try again.`);
+  }
+  policy.seedFromLedger(alreadyPaid);
+  if (alreadyPaid > 0) {
+    log(`ledger says ${alreadyPaid.toFixed(2)} of the ${daily} daily budget is already spent today`);
+    if (alreadyPaid >= daily) {
+      bad(`today's budget is already gone: ${alreadyPaid.toFixed(2)} paid, ${daily} allowed.\n  `
+        + `the mandate would refuse every payment. Raise --daily or wait for the UTC day to roll over.`);
+    }
+  }
+
   if (network === "public") {
     console.log(`
   MAINNET — real money.
@@ -332,7 +355,7 @@ async function sell() {
   ${split
     ? "approvals need your phone. this machine holds one of the two keys."
     : "WARNING: this process holds BOTH human keys. Anyone with this machine can approve. Use --split for anything real."}
-  policy: max ${maxPer} per payment, ${daily} per day
+  policy: max ${maxPer} per payment, ${daily} per day${alreadyPaid > 0 ? ` (${(daily - alreadyPaid).toFixed(2)} left today)` : ""}
   ctrl-c to stop
 `);
 

@@ -234,11 +234,19 @@ combination blocks every payment and looks like a bug in the desk.
 Verified on the published package: 6 x 4.50 against `--daily 20` -> four
 settled, two refused, vault balance moved exactly 18.00 and stopped.
 
+**The budget survives a restart.** `paydlux sell` asks the ledger what the vault
+already paid that payee today and starts from that number, so `ctrl-c` and
+`npm run app` again does not hand the day back. If the day is already spent it
+refuses to start and says so; if the ledger cannot be read it refuses to start
+too, because a budget that silently reads as unspent is worse than no budget.
+The banner shows what is left: `policy: max 10 per payment, 50 per day (27.50
+left today)`.
+
 ### What is enforced where (said honestly)
 
 | enforced by Stellar | enforced by the desk (`policy.ts`) |
 |---|---|
-| payee, token, time window, one-shot execution, per-payment ceiling as a signer rule | per-payment ceiling and daily total at the approve button and again at submission, running daily total, seller allow/deny list |
+| payee, token, time window, one-shot execution, per-payment ceiling as a signer rule | per-payment ceiling and daily total at the approve button and again at submission, running daily total **seeded from the ledger's own payment history**, seller allow/deny list |
 
 The vault is one payment at a time; counting payments is our job. A rule break
 means we never build the transaction, so nothing reaches the ledger.
