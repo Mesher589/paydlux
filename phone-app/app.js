@@ -508,8 +508,9 @@ async function signAndSubmit() {
     // file computed, so the native side is asked to sign exactly what was on
     // screen and is never handed a transaction to interpret.
     const pre = X.signaturePreimage(hash);
-    const sig = new Uint8Array(await signPreimage(X.hex(pre)));
     if (!approverPubBytes) throw new Error("this device lost the approver's public key — re-import it");
+    if (!globalThis.PaydluxVerify) throw new Error("this approver page is missing verify.js — nothing was signed");
+    const sig = new Uint8Array(await signPreimage(X.hex(pre)));
     // Prove the signature came from the key this screen named, before a byte
     // of it leaves the device. A bridge that signs with some other key is then
     // useless: its output never reaches the ledger.
@@ -583,6 +584,7 @@ async function readPasted() {
       throw new Error("that is not the hash the seller quoted \u2014 nothing was signed");
     }
     const sig = new Uint8Array(await signPreimage(X.hex(X.signaturePreimage(hash))));
+    if (!globalThis.PaydluxVerify) throw new Error("this approver page is missing verify.js \u2014 nothing was signed");
     if (!await globalThis.PaydluxVerify.verifySignature(sig, hash, approverPubBytes)) {
       throw new Error("the signature does not match this key — nothing was produced");
     }
