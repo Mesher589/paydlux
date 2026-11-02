@@ -206,6 +206,17 @@ const main = async () => {
   // payment, so the day's total has to be read from there.
   const paidOnLedger = Number(await vault.paidToday(seller.publicKey()));
   ok(paidOnLedger > 0, `the ledger reports ${paidOnLedger} already paid to this payee today`);
+  // Handing it anything but an account id must raise, not report zero. An object
+  // compares unequal to every ledger `to` field, so a sloppy caller would seed
+  // the budget at 0 and hand the day back to the seller.
+  let guardErr = "";
+  try { await vault.paidToday({ address: seller.publicKey() } as any); }
+  catch (e: any) { guardErr = e?.message ?? String(e); }
+  ok(/pass payee\.address/.test(guardErr),
+    `a payee object is refused, not read as zero spend (${guardErr.slice(0, 60)})`);
+  guardErr = "";
+  try { await vault.paidToday("GA7G" as any); } catch (e: any) { guardErr = e?.message ?? String(e); }
+  ok(/G\u202656 chars/.test(guardErr), `a malformed account id is refused (${guardErr.slice(0, 50)})`);
   // A brand-new engine — as if the seller had just restarted — seeded from the
   // ledger must refuse what an unseeded one would wave through.
   const room = 4.5;
