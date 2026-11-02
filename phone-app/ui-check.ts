@@ -87,7 +87,15 @@ ok(unpublished.length === 0, unpublished.length === 0
   ? "all of them are listed in package.json \"files\" (so npm ships them)"
   : `NOT IN package.json files — npm users get a 404: ${unpublished.join(", ")}`);
 
-step("5. the offline shell caches code, never payment data");
+step("5. a missing verify.js fails closed and says so");
+// Both signing paths must refuse rather than sign when the verifier is absent,
+// and name the missing file instead of throwing a TypeError about undefined.
+const paths = js.split("PaydluxVerify").length - 1;
+const guards = js.split("!globalThis.PaydluxVerify) throw").length - 1;
+ok(guards >= 2 && guards * 2 <= paths,
+  `${guards} signing paths refuse when verify.js is absent (of ${paths} uses)`);
+
+step("6. the offline shell caches code, never payment data");
 // Re-asserted here because this file is the cheap static gate: the rule belongs
 // next to the other rules about the page itself.
 ok(!/cache\.addAll|caches\.open\(\s*["']payments/.test(sw), "no payment cache in sw.js");
