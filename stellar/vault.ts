@@ -264,6 +264,44 @@ export class StellarVault {
   // --------------------------------------------------------------- mandates
 
   /**
+   * What this vault already paid `payee` in the current UTC day, according to
+   * the ledger — not according to this process's memory.
+   *
+   * Why this exists: the daily budget was counted in a `PolicyEngine` array that
+   * lives only in RAM. Restart the seller and the counter resets to zero, so the
+   * mandate the banner advertises is only as strong as the process uptime. A
+   * seller with `--daily 20` who restarts twice can pay out 60. The ledger
+   * already recorded every payment that went through, so the honest number is a
+   * query away, and it survives restarts, crashes and redeploys.
+   */
+  async paidToday(payee: string): Promise<Amount> {
+    const start = new Date(); start.setUTCHours(0, 0, 0, 0);
+    let total = 0;
+    let cursor: string | undefined;
+    // Payments are walked backwards from newest, stopping at the UTC midnight
+    // boundary, so the cost is proportional to today's traffic and not to the
+    // account's whole history.
+    for (let page = 0; page < 10; page++) {
+      const url = `${HORIZON_URL[this.network]}/accounts/${this.address}/payments`
+        + `?order=desc&limit=200${cursor ? `&cursor=${cursor}` : ""}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`ledger payments query failed: ${res.status}`);
+      const recs: any[] = (await res.json())?._embedded?.records ?? [];
+      if (!recs.length) break;
+      for (const e of recs) {
+        if (new Date(e.created_at).getTime() < start.getTime()) return total.toFixed(7);
+        if (e.type !== "payment" && e.type !== "claimable_balance_claim") continue;
+        if (e.to !== payee) continue;
+        if (e.asset_type === "native") continue;
+        if (e.asset_code !== this.token.getCode() || e.asset_issuer !== this.token.getIssuer()) continue;
+        total += Number(e.amount);
+      }
+      cursor = recs[recs.length - 1].paging_token;
+    }
+    return total.toFixed(7);
+  }
+
+  /**
    * Build a mandate and register it on the vault.
    *
    * Returns the envelope (base64 XDR) to hand to the agent plus its hash. The

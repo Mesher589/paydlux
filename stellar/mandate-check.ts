@@ -198,6 +198,45 @@ const main = async () => {
   ok(retried !== never, `the buyer's retry parks a live handle (${retried}, not ${never})`);
   await eDesk.close();
 
+  step("11. a restart does not reset the day's spending");
+  // The daily counter used to live only in a RAM array. `ctrl-c`, start again,
+  // and the seller with `--daily 20` had spent nothing today — so the mandate in
+  // the banner held only until the next restart, and the same vault could be
+  // drained in multiples of the budget. The ledger already recorded every
+  // payment, so the day's total has to be read from there.
+  const paidOnLedger = Number(await vault.paidToday(seller.publicKey()));
+  ok(paidOnLedger > 0, `the ledger reports ${paidOnLedger} already paid to this payee today`);
+  // A brand-new engine — as if the seller had just restarted — seeded from the
+  // ledger must refuse what an unseeded one would wave through.
+  const room = 4.5;
+  const restarted = new PolicyEngine({ maxPerPayment: 10, dailyBudget: paidOnLedger + room });
+  const rDesk = new ApprovalDesk({
+    vault, payee: seller.publicKey(), principal: principal.secret(),
+    split: true, port: 4194, portalKey: newPortalKey(), decideWithinSeconds: 3600,
+    policy: restarted,
+  });
+  const fits = rDesk.enqueue("GET https://api.example.com/fits", String(room), "one fits", "payload");
+  const fitsAsked = await rDesk.approve(fits);
+  ok(fitsAsked!.status === "awaiting_phone",
+    `the remaining ${room} still fits (budget ${paidOnLedger + room}, ledger already spent ${paidOnLedger})`);
+  const tooMany = rDesk.enqueue("GET https://api.example.com/too-many", String(room), "one too many", "payload");
+  const tooManyAsked = await rDesk.approve(tooMany);
+  ok(tooManyAsked!.status === "failed" && /daily_budget/.test(tooManyAsked!.reason ?? ""),
+    `the next one is refused at the button: ${tooManyAsked!.reason}`);
+  // The bug this replaces: an unseeded engine sees an empty day.
+  const amnesic = new PolicyEngine({ maxPerPayment: 10, dailyBudget: paidOnLedger + room });
+  const aDesk = new ApprovalDesk({
+    vault, payee: seller.publicKey(), principal: principal.secret(),
+    split: true, port: 4195, portalKey: newPortalKey(), decideWithinSeconds: 3600,
+    policy: amnesic,
+  });
+  const ghost = aDesk.enqueue("GET https://api.example.com/ghost", String(room), "fresh memory", "payload");
+  const ghostAsked = await aDesk.approve(ghost);
+  ok(ghostAsked!.status === "awaiting_phone",
+    "proof the hole was real: an unseeded engine waves the same payment through");
+  await aDesk.close();
+  await rDesk.close();
+
   await desk.close();
   console.log(`\n${fail === 0 ? "ALL CHECKS PASSED" : "FAILURES: " + fail} \u2014 the mandate holds at both doors.`);
   console.log(`pass ${pass}  fail ${fail}`);

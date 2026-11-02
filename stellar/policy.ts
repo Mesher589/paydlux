@@ -61,6 +61,22 @@ export class PolicyEngine {
 
   record(e: SpendEvent) { this.events.push(e); }
 
+  /**
+   * Seed the day's total from the ledger instead of from this process's memory.
+   *
+   * `events` starts empty, so a fresh seller process believes it has spent
+   * nothing today. The mandate printed in the banner ("20 per day") then only
+   * holds until the next restart. Seeding from the ledger makes the budget a
+   * property of the vault, not of the uptime of whichever machine ran `sell`.
+   */
+  seedFromLedger(amount: number) {
+    if (!(amount > 0)) return;
+    // One synthetic event at the start of the day: it counts toward the total
+    // without pretending to be a payment this process can re-enact.
+    const start = new Date(); start.setUTCHours(0, 0, 0, 0);
+    this.record({ at: start.getTime(), amount, payee: "ledger" });
+  }
+
   /** Everything spent in the current UTC day. */
   spentToday(): number {
     const start = new Date(); start.setUTCHours(0, 0, 0, 0);
