@@ -187,6 +187,15 @@ const main = async () => {
   const fresh = eDesk.enqueue("GET https://api.example.com/fresh", "9.00", "after", "payload");
   const freshAsked = await eDesk.approve(fresh);
   ok(freshAsked!.status === "awaiting_phone", "the freed budget lets the next request through");
+  // The same hole exists one state earlier: a request nobody ever opened stays
+  // `pending` forever, and the gateway reuses that dead handle on every retry
+  // instead of parking a fresh one the human would actually see.
+  const never = eDesk.enqueue("GET https://api.example.com/never", "1.00", "unopened", "payload");
+  ok(eDesk.get(never)!.status === "pending", "it starts pending");
+  await new Promise((res) => setTimeout(res, 2500));
+  ok(eDesk.get(never)!.status === "expired", `unopened past the window it is ${eDesk.get(never)!.status}`);
+  const retried = eDesk.enqueue("GET https://api.example.com/never", "1.00", "unopened", "payload");
+  ok(retried !== never, `the buyer's retry parks a live handle (${retried}, not ${never})`);
   await eDesk.close();
 
   await desk.close();
