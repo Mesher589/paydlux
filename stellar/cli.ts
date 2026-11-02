@@ -14,6 +14,8 @@
 // A seller should type one command and get a price, a link, and a key to paste
 // into their bot.
 import { createInterface } from "node:readline/promises";
+import { createServer } from "node:http";
+import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
@@ -35,6 +37,35 @@ const log = (...a: unknown[]) => console.log("•", ...a);
 /** Print a reason and stop. Declared as a function (not an arrow in a const) so
  *  TypeScript's control-flow analysis actually narrows the caller after it. */
 function bad(msg: string): never { console.error("\n" + msg + "\n"); process.exit(1); }
+
+/**
+ * Ask the OS whether a port is free, and if not, who owns it. Returns null when
+ * the port is available. Naming the owning process is what turns "EADDRINUSE"
+ * into something a seller can act on.
+ */
+function portHolder(port: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    const probe = createServer();
+    probe.once("error", (e: NodeJS.ErrnoException) => {
+      if (e.code === "EADDRINUSE") resolve(findListener(port) ?? "another process");
+      else resolve(null); // some other bind problem; let the real listen report it
+    });
+    probe.once("listening", () => { probe.close(() => resolve(null)); });
+    probe.listen(port, "127.0.0.1");
+  });
+}
+
+/** Best-effort: which command is holding this port, from `lsof`. */
+function findListener(port: number): string | null {
+  try {
+    const out = execSync(`lsof -nP -ti tcp:${port} -sTCP:LISTEN 2>/dev/null`, { encoding: "utf8" });
+    const pid = out.trim().split("\n")[0];
+    if (!pid) return null;
+    const cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`, { encoding: "utf8" }).trim();
+    const mine = cmd.includes("cli") || cmd.includes("paydlux");
+    return `${mine ? "another Paydlux (pid " + pid + ")" : cmd || "pid " + pid}`;
+  } catch { return null; }
+}
 
 /** The one file that holds everything. Refuses to read a file that is world-readable. */
 export function loadVault(path = resolve(process.cwd(), arg("file") ?? VAULT_FILE_DEFAULT)) {
@@ -234,6 +265,20 @@ async function sell() {
   const publicHost = tls ? PUBLIC_HOST : (arg("host") ?? undefined);
   const deskPort = Number(arg("desk") ?? 4022);
   const gwPort = Number(arg("port") ?? 4021);
+
+  // A taken port used to surface as an unhandled EADDRINUSE stack trace from
+  // inside Node. To someone following the README that reads as a broken
+  // install, and the stack names neither port nor remedy.
+  for (const [label, port] of [["gateway", gwPort], ["approval desk", deskPort]] as const) {
+    const who = await portHolder(port);
+    if (who) {
+      // Suggest the pair, not the clashing port twice: --port and --desk with
+      // the same number would fail on the next line.
+      bad(`port ${port} (${label}) is already in use by ${who}.\n` +
+          `  another Paydlux is probably running. Stop it, or move this one:\n` +
+          `  paydlux sell --port ${gwPort + 100} --desk ${deskPort + 100}`);
+    }
+  }
 
   const gw = new Gateway({
     vault, network, payee,
@@ -603,8 +648,12 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
 
   paydlux setup [--mainnet] [--token USDC] [--fund-seed S…]
       create a vault. testnet by default (free, no wallet needed).
-  paydlux sell  [--price 1] [--route /api/data] [--split] [--tls] [--preauth]
+  paydlux sell  [--price 1] [--route /api/data] [--max N] [--daily N]
+                [--split] [--tls] [--preauth]
       start the gateway and the approval desk.
+      --max / --daily are your spending mandate: no single payment above --max,
+      and nothing past --daily in a day. The desk refuses at the approve button,
+      so a runaway agent cannot drain the vault even if you approve in error.
   paydlux status
       balances, signers, live mandates, ledger rent.
   paydlux approver [--forget]
