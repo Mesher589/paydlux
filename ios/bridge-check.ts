@@ -20,6 +20,7 @@ const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
 const app = read("../phone-app/app.js");
 const bridge = read("./PaydluxApprover/WebViewHost.swift");
 const model = read("./PaydluxApprover/ApproverModel.swift");
+const ui = read("./PaydluxApprover/PaydluxApproverApp.swift");
 const keychain = read("./PaydluxApprover/KeychainStore.swift");
 const watcher = read("./PaydluxApprover/Watcher.swift");
 const plistish = read("./project.yml");
@@ -55,8 +56,21 @@ ok(!/webkit\.messageHandlers\.\w+\.postMessage\(\s*\{[^}]*seed/.test(app),
   "the seed is never handed to the native side");
 ok(/IdentityStore\.save\(publicHex:/.test(model) && /IdentityStore\.publicHex\(\)/.test(model),
   "only the public half is cached for the page");
-ok(/IdentityStore\.clear\(\)/.test(read("./PaydluxApprover/PaydluxApproverApp.swift")),
-  "forgetting the key also clears the cached public half");
+// Removal has to drop the public half too, or a later screen names a key this
+// device no longer holds. Asserted on the shared path rather than on whichever
+// file happened to hold the call sites: removal now routes through
+// ApproverModel.forgetKey() from three entry points, and grepping one of them
+// would pass while the others drifted.
+const forget = (model.match(/func forgetKey\(\)[\s\S]*?\n    \}/) ?? [""])[0];
+ok(/KeychainStore\.delete\(\)/.test(forget) && /IdentityStore\.clear\(\)/.test(forget),
+  "forgetKey() drops the Keychain item AND the cached public half");
+ok(/stage = route\(keyExists: false\)/.test(forget),
+  "forgetKey() recomputes the stage instead of assuming one");
+// No entry point may delete a key by hand any more.
+const callSites = (ui.match(/KeychainStore\.delete\(\)/g) ?? []).length;
+ok(callSites === 0, `no UI view deletes a key by hand (found ${callSites})`);
+ok((ui.match(/model\.forgetKey\(\)/g) ?? []).length >= 2,
+  "every removal button in the UI calls the shared path");
 
 console.log("\norigin pinning");
 // One literal, one place. A pinned origin typed out twice is two constants that
