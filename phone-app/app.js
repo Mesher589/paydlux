@@ -289,7 +289,7 @@ function row(rec) {
     const btns = document.createElement("div");
     btns.className = "btns";
     const yes = document.createElement("button");
-    yes.textContent = "Review";
+    yes.textContent = "Review & approve";
     yes.addEventListener("click", () => openReview(rec.id));
     const no = document.createElement("button");
     no.className = "danger";
@@ -297,6 +297,13 @@ function row(rec) {
     no.addEventListener("click", () => reject(rec.id));
     btns.append(yes, no);
     foot.append(btns);
+    // Say what the next screen asks for. Approving is a deliberate hold, not a
+    // tap, and a person who expects a button on this row concludes the page is
+    // broken and gives up before ever seeing the hold control.
+    const how = document.createElement("div");
+    how.className = "howto";
+    how.textContent = `Approving takes a ${holdSeconds()}-second hold on the next screen. Reject is one tap.`;
+    wrap.append(how);
   }
 
   wrap.append(top, uri, wants, foot);
@@ -446,6 +453,10 @@ function backToQueue() {
 // is one tap and Approve needs a deliberate hold. This is what stops a pocket
 // tap, a mis-tap, and the person who taps Approve and only then starts reading.
 const HOLD_MS = 1200;
+// The queue row quotes this number, so it is stated once and read from the
+// constant. Copy that says "one second" over a 1.2s gesture teaches the wrong
+// gesture and reads as broken the first time it does not fire.
+const holdSeconds = () => (HOLD_MS / 1000).toFixed(1).replace(/\.0$/, "");
 let holdStart = 0, holdTimer = null;
 
 function resetHold() {

@@ -95,7 +95,21 @@ const guards = js.split("!globalThis.PaydluxVerify) throw").length - 1;
 ok(guards >= 2 && guards * 2 <= paths,
   `${guards} signing paths refuse when verify.js is absent (of ${paths} uses)`);
 
-step("6. the offline shell caches code, never payment data");
+step("6. the queue says how approval happens before you need to know it");
+// "I see no buttons" was a real report, not a misunderstanding. The row offered
+// "Review" and the Approve control turned out to be a one-second hold on the
+// next screen, so the page read as broken and the person stopped there. The row
+// has to name the gesture, and the button has to say what it leads to.
+ok(/Review & approve/.test(js), "the row button says what the next screen is for");
+ok(/Approving takes a \$\{holdSeconds\(\)\}-second hold/.test(js),
+  "the row states that approving is a hold, not a tap");
+// The quoted number must come from the constant that drives the gesture, not
+// from copy that can drift away from it.
+ok(/const holdSeconds = \(\) => \(HOLD_MS \/ 1000\)/.test(js),
+  "the quoted hold length is derived from HOLD_MS, not hand-written");
+ok(/\.howto/.test(html) && /howto/.test(js), "the hint is styled, not just appended");
+
+step("7. the offline shell caches code, never payment data");
 // Re-asserted here because this file is the cheap static gate: the rule belongs
 // next to the other rules about the page itself.
 ok(!/cache\.addAll|caches\.open\(\s*["']payments/.test(sw), "no payment cache in sw.js");
