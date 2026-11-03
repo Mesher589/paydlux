@@ -1,0 +1,25 @@
+# The public paydlux.com landing page.
+#
+# It is a Cloudflare *Worker with static assets*, not Cloudflare Pages. That is
+# why there is no "upload assets" button to find in the dashboard and why a git
+# push does nothing: `site/` is gitignored on purpose (it holds a generated QR
+# that encodes a live money address), and the deploy is this file plus
+# `npm run site:deploy`.
+#
+# There is no worker script here on purpose — the whole site is static files.
+# The custom domains are declared so a deploy cannot silently drop them; they
+# were originally created in the dashboard, and a config that omits routes
+# leaves them alone, but a config that states them is safer than one that
+# relies on that.
+name = "paydlux"
+compatibility_date = "2026-10-30"
+
+assets = { directory = "site" }
+
+[[routes]]
+pattern = "paydlux.com"
+custom_domain = true
+
+[[routes]]
+pattern = "www.paydlux.com"
+custom_domain = true

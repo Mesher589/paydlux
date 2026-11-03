@@ -57,8 +57,13 @@
     "test:xlm": "tsx stellar/xlm-check.ts",
     "test:donate": "tsx stellar/donate-check.ts",
     "donate:live": "tsx stellar/donate-live.ts",
-    "app:mainnet:sell": "tsx stellar/cli.ts sell --file paydlux-mainnet.json --split --tls --showcase --donate --price 1 --route /market/data --max 2 --daily 20",
-    "app:testnet:sell": "tsx stellar/cli.ts sell --split --tls --showcase --donate --price 1 --route /market/data --max 10 --daily 50"
+    "app:mainnet:sell": "tsx stellar/cli.ts sell --file paydlux-mainnet.json --split --tls --price 1 --route /market/data --max 2 --daily 20",
+    "app:testnet:sell": "tsx stellar/cli.ts sell --split --tls --showcase --price 1 --route /market/data --max 10 --daily 50",
+    "app:donate": "tsx stellar/cli.ts donate --file paydlux-mainnet.json --tls --price 1",
+    "site:qr": "tsx stellar/make-site-qr.ts paydlux-mainnet.json site/qr.svg",
+    "address:check": "tsx stellar/check-address.ts",
+    "test:address": "tsx stellar/address-check.ts",
+    "site:deploy": "tsx stellar/make-site-qr.ts paydlux-mainnet.json site/qr.svg && wrangler deploy"
   },
   "keywords": [
     "x402",
@@ -84,10 +89,12 @@
     "access": "public"
   },
   "dependencies": {
-    "@stellar/stellar-sdk": "^17.4.0"
+    "@stellar/stellar-sdk": "^17.4.0",
+    "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
+    "jsqr": "^1.4.0",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "viem": "^2.57.13",

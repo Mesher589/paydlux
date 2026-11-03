@@ -7,13 +7,23 @@
 // The server's only witness is Horizon — nothing here tells it the payment
 // happened except the hash.
 //
-//   npx tsx stellar/donate-live.ts [https://donate.paydlux.com]
+//   npx tsx stellar/donate-live.ts [https://donate.paydlux.com] [vault-file]
+//
+// The vault file has to match the network the door is on. Pointing a testnet
+// vault at the mainnet door fails with op_no_destination, because the payee
+// address the door names does not exist on the test ledger — an error message
+// that reads like a broken door when the test itself is on the wrong network.
 import { Account, Asset, Keypair, Memo, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { passphrase, type Network } from "./vault.ts";
 
 const BASE = process.argv[2] ?? "https://donate.paydlux.com";
-const data = JSON.parse(readFileSync("paydlux-vault.json", "utf8"));
+const FILE = process.argv[3] ?? "paydlux-vault.json";
+if (!existsSync(FILE)) {
+  console.error(`no vault file at ${FILE}. For the mainnet door use: paydlux-mainnet.json`);
+  process.exit(1);
+}
+const data = JSON.parse(readFileSync(FILE, "utf8"));
 const network = (data.network ?? "testnet") as Network;
 const horizon = network === "public" ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org";
 
@@ -29,6 +39,14 @@ async function main() {
     body: JSON.stringify({ vault: data.vault }) });
   const terms: any = await ask.json();
   if (ask.status !== 402 || !terms.order) bad(`expected 402 + order, got ${ask.status}: ${JSON.stringify(terms)}`);
+  // Say which network each side is on BEFORE trying to pay. A testnet vault
+  // paying a mainnet payee fails as op_no_destination, which looks like a
+  // broken door and is really the wrong vault file.
+  const doorNet = String(terms.network ?? "").replace("stellar:", "");
+  if (doorNet && doorNet !== network) {
+    bad(`network mismatch: ${BASE} is on ${doorNet} but ${FILE} is a ${network} vault.
+  Pass the matching vault file as the second argument.`);
+  }
   log(`402 — order ${terms.order}, memo ${terms.memo}, pay ${terms.maxAmountRequired} ${terms.token?.code} to ${terms.payTo.slice(0, 8)}…`);
 
   // Poll once before paying: the page does this, and it must NOT mint a new order.

@@ -13,6 +13,13 @@ paydlux-vault.json
 *.vault.json
 dist/
 paydlux-fund-wallet.json
+# paydlux-mainnet.json does NOT match *.vault.json, and it holds the real-money
+# half of a live 2-of-2 account. One `git add -A` would publish the seeds and
+# anyone reading the repo could drain the vault. Name it explicitly.
+paydlux-mainnet.json
+paydlux-*-mainnet.json
 
 # local scratch scripts that hold testnet agent keys — never commit
 tmp/
+
+.wrangler/

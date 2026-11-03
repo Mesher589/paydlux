@@ -15,7 +15,7 @@
 // The tunnel's credentials live in ~/.cloudflared/<tunnel-id>.json. They are NOT
 // in this repo and must never be. Anyone holding that file can serve your
 // hostname. Losing it means deleting the tunnel and making a new one.
-import { spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -81,6 +81,25 @@ export function tunnelServes(hostname: string): boolean {
   let cfg = "";
   try { cfg = readFileSync(join(dir, "config.yml"), "utf8"); } catch { return false; }
   return new RegExp(`hostname:\\s*${hostname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "m").test(cfg);
+}
+
+/**
+ * Is the named tunnel already running on this machine?
+ *
+ * Two `sell` processes can legitimately share one hostname set — the free
+ * showcase on testnet and the real donation door on mainnet are deliberately
+ * separate, because the demo spends the seller's money and must not touch real
+ * XLM. If both spawn their own cloudflared there are two runners on one tunnel:
+ * Cloudflare allows it, but each extra runner is a process that outlives its
+ * parent in a different way, and an orphaned cloudflared is a public hostname
+ * with nobody watching the port behind it. So the second one reuses the first.
+ */
+export function tunnelRunning(): boolean {
+  try {
+    const out = execFileSync("pgrep", ["-f", `cloudflared tunnel run ${TUNNEL_NAME}`],
+      { encoding: "utf8" }).trim();
+    return out.length > 0;
+  } catch { return false; }   // pgrep exits 1 when nothing matches
 }
 
 /**
