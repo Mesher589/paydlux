@@ -24,7 +24,7 @@ import { StellarVault, USDC_ISSUER, passphrase, type Network } from "./vault.ts"
 import { Gateway } from "./gateway.ts";
 import { newPortalKey } from "./desk.ts";
 import { PolicyEngine } from "./policy.ts";
-import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelServes } from "./tunnel";
+import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelRunning, tunnelServes } from "./tunnel";
 import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase";
 import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate";
 
@@ -334,7 +334,11 @@ async function sell() {
   if (tls) {
     const problem = tunnelProblem();
     if (problem) bad("--tls cannot run here: " + problem);
-    tunnel = runTunnel();
+    // A second `sell` on this machine (the free testnet showcase and the real
+    // mainnet donation door run apart on purpose) must not spawn a second
+    // cloudflared for the same tunnel. Reuse the one already running.
+    if (tunnelRunning()) log("the named tunnel is already running on this machine — reusing it");
+    else tunnel = runTunnel();
   }
 
   await gw.listen(gwPort, (u) => JSON.stringify({
@@ -466,10 +470,19 @@ async function status() {
   const signers = await vault.signerSummary();
   const live = signers.signers.filter((s: any) => s.type === "preauth-mandate");
 
+  // An XLM vault has no issuer at all — the ledger's own currency is not
+  // issued by anyone. This line used to call .slice() on undefined and the
+  // whole status command died with "Cannot read properties of undefined",
+  // which made the one command that shows real balances useless precisely on
+  // the real-money (XLM) setup.
+  const tokenLabel = data.token.issuer
+    ? `${data.token.code} (${String(data.token.issuer).slice(0, 8)}…)`
+    : `${data.token.code} (the ledger's own currency — no issuer)`;
+
   console.log(`
   network   ${network}
   vault     ${vault.address}
-  token     ${data.token.code} (${data.token.issuer.slice(0, 8)}…)
+  token     ${tokenLabel}
   balance   ${await vault.balance()} ${data.token.code}
   xlm rent  ${rent.xlm} / ${rent.min} XLM  ${rent.short ? "SHORT — payments will fail" : "ok"}
   payee     ${data.payee?.address ?? "(not set)"}
@@ -773,6 +786,130 @@ async function withdraw() {
   console.log(`vault now holds ${await vault.balance()} ${data.token.code}`);
 }
 
+// ----------------------------------------------------------------------- usdc
+
+/**
+ * Let the vault and its payee hold real Circle USDC.
+ *
+ * Circle mints USDC, so there is no issuer key for us to hold — an account
+ * only has to say it accepts USDC (a trustline) before the ledger will let it
+ * receive any. Without this, a payment of real USDC to the vault fails with
+ * OP_NO_TRUST and the money bounces back to the sender.
+ *
+ * Two trustlines are needed, not one: the vault, and the payee the 402 terms
+ * actually name as the destination. Adding only the vault's is the half-fix
+ * that looks set up and still bounces.
+ *
+ * Each trustline also raises the account's XLM rent by 0.5 XLM. The payee we
+ * create is funded with exactly one account entry (2 XLM), so a trustline on
+ * it fails OP_INSUFFICIENT_BALANCE unless it is topped up first. That is why
+ * this command pays the rent before it asks for the trustline.
+ *
+ * This does NOT change what the door charges. The live doors settle in XLM and
+ * the printed price stays XLM until someone deliberately switches the token;
+ * a trustline only makes USDC *possible*, it never silently reprices a live
+ * payment page.
+ */
+async function usdc() {
+  const { data, path } = loadVault();
+  const network = (data.network ?? "testnet") as Network;
+  const keys = data.keys ?? {};
+  if (!keys.principal || !keys.approver) {
+    bad(`adding a trustline needs both human keys and this machine holds `
+      + `${keys.principal ? "only the principal" : "neither"}.\n`
+      + "  run this on the machine with both, or approve from the phone.");
+  }
+  if (!data.payee?.seed) {
+    bad(`the payee ${data.payee?.address ?? "(none)"} is not ours to sign for, so we cannot add its\n`
+      + "  trustline. Ask whoever owns that account to add a USDC trustline for:\n\n"
+      + `  ${USDC_ISSUER[network]}\n\n`
+      + "  or drop --payee and let Paydlux manage a payee account it can sign for.");
+  }
+
+  const principal = Keypair.fromSecret(keys.principal);
+  const approver = Keypair.fromSecret(keys.approver);
+  const payeeKp = Keypair.fromSecret(data.payee.seed);
+
+  const vault = await StellarVault.load(
+    data.vault, data.token.code, data.token.issuer,
+    { principal: principal.publicKey(), approver: approver.publicKey(), agent: pub(keys.agent) } as any,
+    network,
+  );
+
+  const has = async (address: string) => {
+    const acc = await vault.horizon.loadAccount(address).catch(() => null);
+    if (!acc) return null;
+    const line = (acc.balances as any[]).find((b) => b.asset_type !== "native"
+      && b.asset_code === "USDC" && b.asset_issuer === USDC_ISSUER[network]);
+    // Keep the two balances separate. Reading the native balance and labelling
+    // it "USDC" is how a setup check convinces you there is money in the wrong
+    // asset: XLM and USDC are not interchangeable and the ledger keeps them apart.
+    return {
+      xlm: acc.balances.find((b) => b.asset_type === "native")?.balance ?? "0",
+      usdc: line?.balance ?? "0.0000000",
+      line: !!line,
+    };
+  };
+
+  log(`USDC on ${network === "public" ? "mainnet" : network}: issuer ${USDC_ISSUER[network]}`);
+
+  // 1. the payee needs XLM rent for its new subentry before it can accept USDC.
+  const payeeNow = await has(data.payee.address);
+  if (!payeeNow) bad(`${data.payee.address} does not exist on ${network}.`);
+  if (!payeeNow.line) {
+    const rent = await vaultRent(vault);
+    const topup = "0.6";
+    if (Number(rent.xlm) - Number(topup) < Number(rent.min) + 0.5) {
+      bad(`the vault cannot spare the payee's 0.5 XLM rent without going short itself\n`
+        + `  (vault has ${rent.xlm} XLM, needs ${rent.min} to stay open). Fund it first.`);
+    }
+    log(`paying the payee ${topup} XLM so it can afford the trustline rent…`);
+    await vault.release(data.payee.address, topup, principal, approver, "paydlux usdc rent");
+  }
+
+  // 2. both trustlines. useUsdc() first so trustToken() signs for the right asset.
+  vault.useUsdc();
+  const vaultNow = await has(vault.address);
+  if (vaultNow?.line) log("the vault already holds a USDC trustline");
+  else {
+    log(`adding the vault's USDC trustline…`);
+    await vault.trustUsdc(principal, approver);
+  }
+  if (payeeNow.line) log("the payee already holds a USDC trustline");
+  else {
+    log(`adding the payee's USDC trustline…`);
+    await vault.trustToken(data.payee.address, "1000000", payeeKp);
+  }
+
+  // 3. verify by re-reading the ledger. A trustline the ledger does not show is
+  // not a trustline.
+  const v2 = await has(vault.address);
+  const p2 = await has(data.payee.address);
+  console.log(`
+  vault  ${vault.address}
+         USDC ${v2?.line ? "accepted" : "NOT ACCEPTED"}   holds ${v2?.usdc} USDC, ${v2?.xlm} XLM
+  payee  ${data.payee.address}
+         USDC ${p2?.line ? "accepted" : "NOT ACCEPTED"}   holds ${p2?.usdc} USDC, ${p2?.xlm} XLM
+`);
+  if (!v2?.line || !p2?.line) bad("the ledger does not show both trustlines. nothing was set up.");
+
+  console.log(`both accounts can now hold real Circle USDC.
+
+what that does NOT change: the doors still charge what their config says
+(${data.token.code}), and the printed price on the page stays in that asset.
+Switching the price itself is a deliberate step, because a live page that
+promises 1 XLM and asks for 1 USDC is a page that takes the wrong money.
+
+to put real USDC in, send it from an exchange to:
+
+  ${vault.address}
+
+${network === "public"
+  ? `on MAINNET, and pick the STELLAR network at the exchange — not Tron, not\nEthereum, not Solana. A withdrawal on the wrong network is not recoverable\nby us. No memo or destination tag is needed: this is your own account, not an\nexchange deposit address.`
+  : "on testnet."}
+`);
+}
+
 // ------------------------------------------------------------------------- main
 
 const HELP = `paydlux — get paid by AI agents, with a human in the loop.
@@ -797,14 +934,133 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
 one file holds it all: ./paydlux-vault.json (0600, never commit it)
 `;
 
+/**
+ * `paydlux donate` — the public donation door, on its own.
+ *
+ * This is deliberately NOT `sell --donate`. Three reasons:
+ *
+ * 1. It reads no private key. The door's whole security property is that it
+ *    cannot sign anything: it verifies an incoming payment against the public
+ *    ledger and serves content only if the ledger says we were paid. Loading the
+ *    vault file's seeds into this process would throw that property away, so
+ *    only the public address, network and token code are read here.
+ * 2. It can run on the real network while the free showcase runs on testnet.
+ *    The demo spends the seller's money and must stay play-money; the donation
+ *    door has to take real XLM. They are separate processes on separate ports
+ *    behind the same tunnel.
+ * 3. It has no gateway, no desk and no mandate, because nothing here spends the
+ *    seller's money. Fewer moving parts means less that can leak.
+ */
+async function donate() {
+  const path = arg("file") ?? VAULT_FILE_DEFAULT;
+  if (!existsSync(path)) bad(`no vault file at ${path}. Run: paydlux setup`);
+  const data = JSON.parse(readFileSync(path, "utf8"));
+  const network: Network = data.network === "public" ? "public" : "testnet";
+
+  // Public fields only. If this file ever gains a field this code needs a seed
+  // for, that is a bug to fix here, not a reason to load the seeds.
+  const payee: string | undefined = typeof data.payee === "string"
+    ? data.payee
+    : data.payee?.address;
+  if (!payee) bad(`the vault file has no payee address. Re-run: paydlux setup`);
+  // `vault` in the file is the account's public address (a string). Accept an
+  // object form too, but never read a seed from either.
+  const vaultAddress: string = typeof data.vault === "string"
+    ? data.vault
+    : data.vault?.address ?? data.vault?.publicKey;
+  if (!/^G[A-Z2-7]{55}$/.test(vaultAddress ?? "")) {
+    bad(`the vault file's address is not a valid Stellar account: ${vaultAddress}`);
+  }
+  let assetCode: string = data.token?.code ?? "XLM";
+  let assetIssuer: string | undefined = data.token?.issuer;
+
+  // --usdc prices this door in real Circle USDC instead of whatever the vault
+  // file says. Two things have to be true before that is safe to serve, and
+  // both are checked against the ledger rather than assumed:
+  //
+  // 1. the vault must already hold a USDC trustline. Without it every payment
+  //    bounces with OP_NO_TRUST, the donor's money comes back, and the page
+  //    still says "not paid yet" forever — a door that looks broken and is.
+  // 2. the payee the 402 terms name must hold one too. Here the payee IS the
+  //    vault, so one check covers both, but the check is written for the
+  //    account the terms actually name so it stays true if that ever changes.
+  if (flag("usdc")) {
+    if (assetCode !== "USDC") log(`pricing in USDC instead of the file's ${assetCode}`);
+    assetCode = "USDC";
+    assetIssuer = USDC_ISSUER[network];
+    const h = network === "public" ? "https://horizon.stellar.org" : "https://horizon-testnet.stellar.org";
+    const acc: any = await fetch(`${h}/accounts/${vaultAddress}`).then((r) => r.ok ? r.json() : null).catch(() => null);
+    const line = acc?.balances?.find((b: any) => b.asset_type !== "native"
+      && b.asset_code === "USDC" && b.asset_issuer === assetIssuer);
+    if (!line) {
+      bad(`${vaultAddress} has no USDC trustline on ${network}, so a USDC payment would be\n`
+        + "  rejected by the ledger (OP_NO_TRUST) and the donor's money would come back.\n\n"
+        + "  add it first:\n\n"
+        + `  paydlux usdc --file ${path}\n`);
+    }
+    log(`USDC trustline confirmed on the ledger. Circle is the issuer: ${assetIssuer}`);
+  }
+
+  const price = arg("price") ?? data.policy?.defaultPrice ?? "1";
+  if (!(Number(price) > 0)) bad("--price must be a positive number");
+
+  const tls = flag("tls") || !process.env.PAYDLUX_NO_TLS;
+  if (tls) {
+    const problem = tunnelProblem();
+    if (problem) bad("--tls cannot run here: " + problem);
+    if (!tunnelRunning()) runTunnel();
+  } else {
+    log("running without TLS. The public door needs --tls: an order and its memo over plain HTTP can be taken by anyone on the path, who then pays for YOUR order with their vault and collects the goods.");
+  }
+
+  const dPort = Number(arg("port") ?? DONATE_PORT);
+  const who = await portHolder(dPort);
+  if (who) {
+    bad(`port ${dPort} (donations) is already in use by ${who}.\n`
+      + `  a donation door is already running. Stop it first, or this one answers nothing\n`
+      + `  and https://${DONATE_HOST} returns 502 with no error in this window.`);
+  }
+
+  // The vault address IS the payee here. Two reasons, and both matter:
+  //
+  // 1. Money lands straight in the 2-of-2. The gateway's payee account is a
+  //    plain single-key account whose seed sits in a file on this machine, and
+  //    it exists so the gateway can pay OUT without the vault signing every
+  //    time. A donation has no reason to pass through it, so it does not.
+  // 2. One address on the page. The QR, the printed address and the 402 terms
+  //    all name the same account, so a human scanning the code and an agent
+  //    following the 402 loop cannot end up paying into different places.
+  const door = startDonate({
+    port: dPort, hostname: DONATE_HOST, payee: vaultAddress, network, price,
+    asset: assetIssuer ? { code: assetCode, issuer: assetIssuer } : { code: assetCode },
+    vault: vaultAddress,
+  });
+  await door.listen(dPort);
+
+  const live = tls ? await tunnelLive(DONATE_HOST, 12) : false;
+  console.log(`
+  donation door is ${live ? `LIVE at https://${DONATE_HOST}` : `listening on 127.0.0.1:${dPort}`}
+  network    ${network === "public" ? "MAINNET — real money" : "testnet — play money"}
+  price      ${price} ${assetCode}
+  paid into  ${vaultAddress}   (the 2-of-2 vault itself — watch every payment land here)
+
+  this process holds no signing key. It can only serve what the ledger confirms
+  was paid for, and it cannot spend anything of yours.
+`);
+  if (tls && !live) log(`https://${DONATE_HOST} is not answering yet. ${tunnelServes(DONATE_HOST) ? "Give the tunnel a few seconds." : `The tunnel does not route ${DONATE_HOST} — add it to ~/.cloudflared/config.yml pointing at 127.0.0.1:${dPort}.`}`);
+}
+
+
 export async function main() {
   const cmd = process.argv[2];
   if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") { console.log(HELP); return; }
   if (cmd === "setup") return setup();
   if (cmd === "sell") return sell();
+  if (cmd === "donate") return donate();
   if (cmd === "status") return status();
   if (cmd === "approver") return approver();
   if (cmd === "withdraw") return withdraw();
+  if (cmd === "usdc") return usdc();
   bad(`unknown command "${cmd}".\n\n${HELP}`);
 }
 

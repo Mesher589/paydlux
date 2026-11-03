@@ -230,6 +230,13 @@ export type ReceiveConfig = {
   page?: () => string;
   /** Served at /donate.js so the page can keep a strict script-src 'self'. */
   script?: () => string;
+  /**
+   * Served at /qr.svg. A Stellar address is 56 base32 characters whose alphabet
+   * contains B/8, I/1, O/0 and U/2 — retyping one is how money is lost. The QR
+   * is its own route rather than an inline data URI so the page can keep
+   * img-src 'self' instead of widening the CSP.
+   */
+  qr?: () => string;
 };
 
 /**
@@ -284,6 +291,15 @@ export function startReceive(cfg: ReceiveConfig) {
         "x-content-type-options": "nosniff", "cache-control": "no-store",
       });
       res.end(cfg.script());
+      return;
+    }
+    if (p === "/qr.svg") {
+      if (!cfg.qr) { send(404, { error: "not_found" }); return; }
+      res.writeHead(200, {
+        "content-type": "image/svg+xml; charset=utf-8",
+        "x-content-type-options": "nosniff", "cache-control": "public, max-age=3600",
+      });
+      res.end(cfg.qr());
       return;
     }
     if (p === "/" || p === "/index.html") {

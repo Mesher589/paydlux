@@ -1,42 +1,40 @@
-// Prove a Stellar address is real WITHOUT trusting the SDK: decode base32,
-// recompute CRC16-XMODEM, compare. 56 chars = 280 bits = 35 bytes
-// (1 version nibble-packed with 3 bits, 32-byte ed25519 key, 2-byte CRC).
-import { readFileSync } from "node:fs";
-import { Keypair } from "@stellar/stellar-sdk";
+// CLI around stellar/address.ts: prove an address is real, and say *why* if it
+// isn't. Run it whenever a wallet or exchange claims an address is invalid.
+//
+//   npm run fund:check
+//   npx tsx stellar/check-address.ts G…
+//
+// The checksum work lives in address.ts now, because the landing-page QR
+// generator needs the same proof before it publishes an address to the public
+// internet. Keeping one copy means the page and this tool cannot disagree.
+import { readFileSync, existsSync } from "node:fs";
+import { checkStellarAddress, seedDerives } from "./address";
 
-const A = process.argv[2]!;
-const ALPHA = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-let bits = 0, val = 0;
-const b: number[] = [];
-for (const ch of A) {
-  const i = ALPHA.indexOf(ch);
-  if (i < 0) { console.log(`BAD CHAR: ${ch}`); process.exit(1); }
-  val = (val << 5) | i; bits += 5;
-  if (bits >= 8) { bits -= 8; b.push((val >> bits) & 0xff); }
-}
-console.log(`chars: ${A.length} -> bytes: ${b.length} (expect 35)`);
-const version = b[0] >> 3;
-const crc = b.slice(33, 35);
-let c = 0;
-for (const x of b.slice(0, 33)) {
-  c ^= x << 8;
-  for (let k = 0; k < 8; k++) c = c & 0x8000 ? ((c << 1) ^ 0x1021) & 0xffff : (c << 1) & 0xffff;
-}
-// Stellar writes the CRC16 little-endian (stellar-base: writeUInt16LE), so the
-// address carries [low, high]. Comparing big-endian reads a valid address as
-// corrupt — which is exactly the kind of false alarm that makes a person send
-// money somewhere else.
-const le = [c & 0xff, (c >> 8) & 0xff];
-const hex = (n: number[]) => n.map((x) => x.toString(16).padStart(2, "0")).join(" ");
-console.log(`version byte: ${version}  (6 = ed25519 account)`);
-console.log(`crc in address: ${hex(crc)}   recomputed (little-endian): ${hex(le)}`);
-console.log(crc[0] === le[0] && crc[1] === le[1]
+const A = process.argv[2] ?? (() => {
+  try {
+    return JSON.parse(readFileSync("paydlux-fund-wallet.json", "utf8")).address;
+  } catch { return undefined; }
+})();
+if (!A) { console.error("usage: check-address <G…address>"); process.exit(1); }
+
+const v = await checkStellarAddress(A, "public");
+console.log(`address:  ${A}`);
+console.log(`decoded:  ${v.bytes} bytes (expect 35)${v.error ? "  " + v.error : ""}`);
+console.log(`version:  ${v.version}  (6 = ed25519 account)`);
+console.log(`crc in address: ${v.crcInAddress}   recomputed (little-endian): ${v.crcComputed}`);
+console.log(v.checksumOk
   ? "CHECKSUM VALID — this is a well-formed Stellar account address"
-  : "CHECKSUM INVALID — the address is corrupt");
+  : "CHECKSUM INVALID — the address is corrupt. Do not send to it.");
 
-const d = JSON.parse(readFileSync("paydlux-fund-wallet.json", "utf8"));
-console.log("address in paydlux-fund-wallet.json matches:", d.address === A);
-console.log("the seed in that file derives this address:", Keypair.fromSecret(d.seed).publicKey() === A);
+if (existsSync("paydlux-fund-wallet.json")) {
+  const d = JSON.parse(readFileSync("paydlux-fund-wallet.json", "utf8"));
+  console.log("address in paydlux-fund-wallet.json matches:", d.address === A);
+  console.log("the seed in that file derives this address:", seedDerives(d.seed, A));
+}
 
-const h = await fetch("https://horizon.stellar.org/accounts/" + A);
-console.log("mainnet ledger:", h.status === 404 ? "account does not exist yet (needs its first XLM)" : "exists, funded");
+console.log("mainnet ledger:", v.exists
+  ? `exists — ${v.balance} XLM`
+  : v.checksumOk
+    ? "does not exist yet (needs its first XLM from an exchange withdrawal)"
+    : "not checked (bad checksum)");
+process.exit(v.checksumOk ? 0 : 1);

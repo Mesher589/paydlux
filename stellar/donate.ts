@@ -15,6 +15,7 @@
 // ledger is the only witness we accept.
 import { startReceive } from "./receive";
 import type { Network } from "./receive";
+import { qrSvg } from "./qr";
 
 export const DONATE_HOST = "donate.paydlux.com";
 export const DONATE_PORT = 4024;
@@ -59,6 +60,11 @@ export function donatePage(cfg: DonatePageConfig): string {
  button:disabled{opacity:.5;cursor:default}
  #out{white-space:pre-wrap;word-break:break-word;font:13px/1.7 Menlo,monospace;background:#0f1315;border-radius:10px;padding:16px;margin-top:16px;display:none}
  .ok{color:#8fe3b0}.bad{color:#e8a09a}
+ .qrrow{display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin:14px 0 4px}
+ .qr img{background:#fff;border-radius:10px;padding:8px;width:188px;height:188px;display:block}
+ pre.addr{flex:1;min-width:260px;margin:0;font-size:12px;word-break:break-all;white-space:pre-wrap}
+ .warn{border-left:3px solid #6b5a2f;padding-left:12px;margin:14px 0 0}
+ #copy.done{background:#24524b}
  footer{margin-top:40px;color:#7f8f95;font-size:13px}
 </style></head>
 <body><main>
@@ -84,6 +90,29 @@ export function donatePage(cfg: DonatePageConfig): string {
 # pay it from your vault with a mandate carrying that memo, then:
 curl -s "https://${DONATE_HOST}/donate?order=ORDER&amp;tx=TXHASH"</pre>
  <div id="out"></div>
+
+ <div class="card qr">
+  <p><strong>Or just send it yourself</strong></p>
+  <p class="muted">No agent, no order, no memo. Scan or copy the address and send XLM
+  from any wallet or exchange that supports Stellar. This is the front door for a
+  human; the 402 loop above is the door for an agent.</p>
+  <div class="qrrow">
+   <img src="/qr.svg" width="188" height="188" alt="QR code for the Paydlux receiving address">
+   <div>
+    <pre class="addr">${cfg.payee}</pre>
+    <div class="row">
+     <button id="copy" type="button">Copy address</button>
+     <a class="muted" href="${cfg.explorer}/${cfg.payee}">watch it on the public ledger</a>
+    </div>
+   </div>
+  </div>
+  <p class="muted">${cfg.payee === cfg.vault
+    ? "That address is the <strong>vault itself</strong> — a 2-of-2 account. Money sent here cannot be moved by one key, including ours: spending it needs the founder's key <em>and</em> a phone, against a daily ceiling, and every payment out is public."
+    : `Money lands in our operating account and is swept into the <a href="${cfg.explorer}/${cfg.vault}">2-of-2 vault</a>. Spending it needs the founder's key <em>and</em> a phone, against a daily ceiling, and every payment out is public.`}</p>
+  <p class="muted warn"><strong>Network: Stellar</strong>, asset <strong>${asset}</strong>.
+  Not Ethereum, not BSC, not Tron. Sending on the wrong chain loses the money — there is
+  no recovery for that. No memo is needed for this address.</p>
+ </div>
 
  <div class="card">
   <p><strong>What actually happens</strong></p>
@@ -113,25 +142,24 @@ curl -s "https://${DONATE_HOST}/donate?order=ORDER&amp;tx=TXHASH"</pre>
  </div>
 
  <div class="card">
-  <p><strong>What it buys, and why a laptop isn't enough</strong></p>
-  <p class="muted">The code is written, it runs, and it is public. What it does not have is
-  the boring infrastructure real money needs:</p>
+  <p><strong>What it funds</strong></p>
+  <p class="muted">The protocol is built, it runs, and it is public — every refusal this
+  page makes is covered by a test that forges a payment and checks that it is rejected.
+  What funding pays for next:</p>
   <ul class="muted">
-   <li><strong>An always-on machine.</strong> Right now the gateway, the desk and this page
-       run on a founder's MacBook. Close the lid and a buyer is parked mid-payment. A
-       payment system that sleeps when its author sleeps is not a payment system.</li>
+   <li><strong>Production infrastructure.</strong> Always-on gateways and approval desks,
+       monitored, with no single machine in the path.</li>
    <li><strong>Settlement capital.</strong> A payment rail needs money moving through it.
        Stellar pays grants in XLM — the same asset this settles in, which is why this is a
        Stellar project and not an EVM one.</li>
    <li><strong>An installable approver app.</strong> The money-critical half of this product
-       is currently a browser tab. It should be a signed app on your phone.</li>
+       is a signing app on your phone, not a browser tab.</li>
    <li><strong>An external audit.</strong> The whole promise is that a human authorises the
        money. If the signing path has a bug, the promise is worth less than nothing, and we
        should not be the only people who looked.</li>
   </ul>
-  <p class="muted">Everything else — the mandate engine, the ledger verification, the
-  refusals — already exists, and every refusal this page makes is covered by a test that
-  forges a payment and checks that it is rejected. That part is not the ask.</p>
+  <p class="muted">None of this changes what the door does: it verifies your payment on the
+  ledger and serves the receipt, or serves nothing and says why.</p>
  </div>
 
  <footer>Paydlux · HTTP 402 for agents, a thumb for humans · <a href="https://paydlux.com">paydlux.com</a></footer>
@@ -150,6 +178,27 @@ export function donateScript(): string {
 // wait. The signature happens on your phone, against your own vault.
 var out = document.getElementById("out"), btn = document.getElementById("go");
 function say(t, cls) { out.style.display = "block"; out.textContent += (out.textContent ? "\\n" : "") + t; if (cls) out.className = cls; }
+
+// Copy the receiving address. The address is read from the page rather than
+// baked into this script, so there is exactly one copy of it and the two can
+// never disagree. A 56-character base32 address with B/8, I/1, O/0 in it is not
+// something to retype.
+var cp = document.getElementById("copy");
+if (cp) cp.onclick = async function () {
+  var addr = (document.querySelector("pre.addr") || {}).textContent || "";
+  var done = function (msg) { cp.textContent = msg; cp.classList.add("done"); setTimeout(function () { cp.textContent = "Copy address"; cp.classList.remove("done"); }, 2500); };
+  try {
+    await navigator.clipboard.writeText(addr.trim());
+    done("copied");
+  } catch (e) {
+    // No clipboard permission (http, or a browser that refuses). Fall back to a
+    // selection the person can copy by hand rather than failing silently.
+    var sel = document.createRange(); sel.selectNodeContents(document.querySelector("pre.addr"));
+    var s = getSelection(); s.removeAllRanges(); s.addRange(sel);
+    done("selected — copy it");
+  }
+};
+
 btn.onclick = async function () {
   btn.disabled = true; out.textContent = "";
   try {
@@ -184,6 +233,10 @@ export function startDonate(cfg: {
   const r = startReceive({
     port: cfg.port, hostname: cfg.hostname, payee: cfg.payee, network: cfg.network,
     price: cfg.price, asset: cfg.asset, page: () => page, script: () => donateScript(),
+    // The QR encodes the payee account this server actually verifies payments
+    // into — not a constant. If the vault or network ever changes, the picture
+    // changes with it, because there is only one source for the address.
+    qr: () => qrSvg(cfg.payee),
     fetchJson: cfg.fetchJson,
     deliver: (order) => ({
       content: {
