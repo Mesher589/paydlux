@@ -143,6 +143,30 @@ export function assetMatches(token: Asset, rec: any): boolean {
     && rec?.asset_issuer === token.getIssuer();
 }
 
+/**
+ * Turn a token name from a config file into an Asset.
+ *
+ * "XLM" is not a token. It is the ledger's own currency, and it behaves
+ * differently in one way that breaks code written for tokens: an account does
+ * not need a trustline to receive it. Passing Asset("XLM", someIssuer) would
+ * build a *fake* asset that merely happens to be called XLM — and the ledger
+ * would then demand a trustline for an asset that cannot have one, while
+ * assetMatches() would refuse to count the real XLM that actually arrived.
+ *
+ * So the name is resolved here, in one place, and every caller gets either a
+ * real native asset or a real code+issuer pair.
+ */
+export function parseToken(code: string, issuer?: string): Asset {
+  const c = (code ?? "").toUpperCase();
+  if (c === "XLM" || c === "NATIVE") {
+    if (issuer) throw new Error(`XLM has no issuer. Do not pass one (got ${issuer}).`);
+    return Asset.native();
+  }
+  if (!c) throw new Error("token code is empty");
+  if (!issuer) throw new Error(`token ${c} needs an issuer account`);
+  return new Asset(c, issuer);
+}
+
 export class StellarVault {
   readonly horizon: Horizon.Server;
   readonly network: Network;
@@ -207,14 +231,21 @@ export class StellarVault {
     // The trustline has to ride in this same transaction: once masterWeight is
     // 0 the vault seed cannot sign anything on its own, so a later changeTrust
     // would need two human signatures before the vault can even hold tokens.
-    const token = new Asset(opts.tokenCode, opts.tokenIssuer ?? issuer.publicKey());
-    await sub(h, pass, (await tb(h, vault.publicKey(), undefined, pass))
-      .addOperation(Operation.changeTrust({ asset: token, limit: "100000000" }))
+    //
+    // XLM gets no trustline at all. It is the ledger's own currency, so
+    // changeTrust on it is not merely unnecessary — the ledger rejects the
+    // operation, which would abort this whole transaction and leave a vault
+    // that exists but has no signers and no thresholds.
+    const token = parseToken(opts.tokenCode, opts.tokenIssuer ?? (opts.tokenCode.toUpperCase() === "XLM" ? undefined : issuer.publicKey()));
+    const setup = (await tb(h, vault.publicKey(), undefined, pass))
       .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: principal.publicKey(), weight: 1 } }))
       .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: approver.publicKey(), weight: 1 } }))
       .addOperation(Operation.setOptions({ signer: { ed25519PublicKey: agent.publicKey(), weight: 1 } }))
-      .addOperation(Operation.setOptions({ masterWeight: 0, lowThreshold: 2, medThreshold: 2, highThreshold: 2 }))
-      .setTimeout(300).build(), vault);
+      .addOperation(Operation.setOptions({ masterWeight: 0, lowThreshold: 2, medThreshold: 2, highThreshold: 2 }));
+    if (token.getAssetType() !== "native") {
+      setup.addOperation(Operation.changeTrust({ asset: token, limit: "100000000" }));
+    }
+    await sub(h, pass, setup.setTimeout(300).build(), vault);
 
     return new StellarVault(vault.publicKey(), token, {
       principal: principal.publicKey(), approver: approver.publicKey(), agent: agent.publicKey(),
@@ -240,21 +271,25 @@ export class StellarVault {
   /** Point this vault at USDC instead of a custom token. */
   useUsdc() { this.token = StellarVault.usdcToken(this.network); return this; }
 
-  /** Re-attach to an existing vault by account id. */
-  static async load(address: string, tokenCode: string, issuer: string, signers: VaultSigners, network: Network) {
+  /** Re-attach to an existing vault by account id. `issuer` is omitted for XLM. */
+  static async load(address: string, tokenCode: string, issuer: string | undefined, signers: VaultSigners, network: Network) {
     const h = new Horizon.Server(HORIZON_URL[network]);
     const acc = await h.loadAccount(address);
     const found = acc.signers ?? [];
     if (!found.some((s) => s.key === signers.principal)) {
       throw new Error(`${address} is not a Paydlux vault (principal ${signers.principal} is not a signer)`);
     }
-    return new StellarVault(address, new Asset(tokenCode, issuer), signers, network);
+    return new StellarVault(address, parseToken(tokenCode, issuer), signers, network);
   }
 
   // ------------------------------------------------------------------ money
 
   /** The seller must opt in to holding our token before we can pay them. */
   async trustToken(seller: string, limit = "100000000", sellerKeypair: Keypair) {
+    // XLM needs no trustline — every account on the ledger can already hold it.
+    // Sending changeTrust for a native asset is an outright ledger error, so
+    // this is a no-op rather than a call that would abort the transaction.
+    if (this.isNative) return;
     await sub(this.horizon, PASSPHRASE[this.network], (await this.tb(seller))
       .addOperation(Operation.changeTrust({ asset: this.token, limit }))
       .setTimeout(300).build(), sellerKeypair);

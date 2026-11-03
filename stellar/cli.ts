@@ -100,6 +100,8 @@ export function deskKeys(path: string, data: any) {
 async function trusts(vault: StellarVault, address: string) {
   const acc = await vault.horizon.loadAccount(address).catch(() => null);
   if (!acc) return false;
+  // Every account can already hold XLM; there is no trustline to be missing.
+  if (vault.isNative) return true;
   const code = vault.token.getCode(), issuer = vault.token.getIssuer();
   return (acc.balances as any[]).some((b) => b.asset_type !== "native"
     && b.asset_code === code && b.asset_issuer === issuer);
@@ -468,8 +470,15 @@ async function setup() {
   const code = ((arg("token") ?? await ask("token for your payments", mainnet ? "USDC" : "AGPAY")) || "AGPAY").toUpperCase();
   const budget = Number(arg("max") ?? await ask("max per payment", mainnet ? "2" : "10"));
   const daily = Number(arg("daily") ?? await ask("daily budget", mainnet ? "10" : "50"));
-  if (mainnet && code !== "USDC") {
-    bad("on mainnet this first release only supports USDC. Custom tokens need an issuer key you would have to hold and protect — not a first-money decision.");
+  // XLM is a first-class settlement asset now, not a fallback. It is the
+  // cheapest way to take real money: no trustline for the buyer, no issuer to
+  // trust, and a visitor can fund a wallet from any exchange in one step.
+  const native = code === "XLM" || code === "NATIVE";
+  if (mainnet && !native && code !== "USDC") {
+    bad("on mainnet this first release only supports XLM and USDC. Custom tokens need an issuer key you would have to hold and protect — not a first-money decision.");
+  }
+  if (native && (budget < 1 || daily < 1)) {
+    bad("an XLM budget under 1 is not usable: Stellar amounts are 7 decimals but rent is paid in XLM, so a sub-1 daily budget would be eaten by the vault's own ledger rent.");
   }
   rl.close();
 
@@ -477,16 +486,20 @@ async function setup() {
 
   const principal = Keypair.random(), approver = Keypair.random(), agent = Keypair.random();
   const payee = Keypair.random();
-  const issuer = code === "USDC" ? null : Keypair.random();
+  // XLM and USDC both have no issuer key for us to hold: XLM is the ledger's
+  // own currency and Circle mints USDC. Only a custom token needs one.
+  const issuer = native || code === "USDC" ? null : Keypair.random();
 
   // The account that pays the XLM for creating everything. On testnet that is
   // friendbot. On mainnet it has to be a wallet the human already controls.
   let funder: Keypair;
   if (!mainnet) {
-    if (!issuer) throw new Error("internal: a custom token needs an issuer key");
     console.log("funding on testnet (friendbot, no captcha)…");
-    for (const k of [issuer, principal, approver, payee]) await StellarVault.fundTestnet(k);
-    funder = issuer;
+    const toFund = [principal, approver, payee, ...(issuer ? [issuer] : [])];
+    for (const k of toFund) await StellarVault.fundTestnet(k);
+    // With no issuer key, one of the throwaway funded accounts pays for the
+    // vault's creation. It is not a key the vault ever trusts.
+    funder = issuer ?? toFund[0];
   } else {
     const seed = arg("fund-seed") ?? process.env.PAYDLUX_FUND_SEED;
     if (!seed) {
@@ -514,10 +527,14 @@ async function setup() {
     issuer: funder,
     principal, approver, agent,
     tokenCode: code,
-    tokenIssuer: code === "USDC" ? USDC_ISSUER[network] : undefined,
+    // XLM has no issuer at all; USDC's issuer is Circle's account, which we
+    // hold no key for. Only a custom token gets the funder as issuer.
+    tokenIssuer: native ? undefined : (code === "USDC" ? USDC_ISSUER[network] : undefined),
     // mainnet: 2 base reserves + 3 signers + 1 trustline = 3 XLM locked, plus
     // room for one live mandate (0.5 XLM) and fees. 5 leaves a margin.
-    startingBalance: mainnet ? "5" : undefined,
+    // An XLM vault skips the trustline, so it needs 0.5 XLM less — but the
+    // vault also *spends* XLM, so it needs a working balance, not just rent.
+    startingBalance: mainnet ? (native ? "12" : "5") : undefined,
   });
   console.log("vault created. master key is off: it can never act alone again.");
 
@@ -527,7 +544,7 @@ async function setup() {
   // with OP_NO_TRUST. This is the single most common reason a first real
   // payment is rejected, so it happens here, once, at setup.
   if (mainnet) {
-    console.log("creating the payee account (2 XLM) and its USDC trustline…");
+    console.log(`creating the payee account (2 XLM)${native ? "" : " and its " + code + " trustline"}…`);
     const { Horizon, TransactionBuilder, Operation, Account, Networks } = await import("@stellar/stellar-sdk");
     const h = new Horizon.Server("https://horizon.stellar.org");
     const fa = await h.loadAccount(funder.publicKey());
@@ -539,14 +556,21 @@ async function setup() {
     await h.submitTransaction(t1);
   }
   await vault.trustToken(payee.publicKey(), "100000", payee);
-  console.log("payee account ready and trusted for " + code + ".");
+  console.log(native
+    ? "payee account ready. XLM needs no trustline — it can already be paid."
+    : "payee account ready and trusted for " + code + ".");
+  // A custom token has to be minted into the vault before it can pay anything.
+  // XLM and USDC arrive from outside, so there is nothing to mint here.
   if (issuer) await vault.deposit(String(daily), issuer);
 
   const data = {
     createdAt: new Date().toISOString(),
     network,
     vault: vault.address,
-    token: { code, issuer: code === "USDC" ? USDC_ISSUER[network] : issuer!.publicKey() },
+    // XLM is stored with no issuer on purpose. A recorded issuer next to the
+    // name "XLM" would describe a fake token that anyone could issue, and
+    // parseToken() refuses that combination outright.
+    token: { code, ...(native ? {} : { issuer: code === "USDC" ? USDC_ISSUER[network] : issuer!.publicKey() }) },
     policy: { maxPerPayment: budget, dailyBudget: daily, defaultPrice: mainnet ? "1" : "2" },
     payee: { address: payee.publicKey(), seed: payee.secret() },
     keys: {
