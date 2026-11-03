@@ -140,6 +140,10 @@ contract AgentVault {
     bool public paused;
 
     mapping(bytes32 => Mandate) public mandates;
+
+    /// @notice Every mandate id ever registered. Revocation clears `active` but
+    ///         must never free the id, or the same signature re-registers it.
+    mapping(bytes32 => bool) public mandateSeen;
     mapping(bytes32 => bool) public intentUsed;
     mapping(bytes32 => bool) public sessionNonceUsed;
     mapping(bytes32 => Session) public sessions;
@@ -378,7 +382,13 @@ contract AgentVault {
         if (dailyBudget == 0) dailyBudget = totalBudget;
 
         id = _mandateDigest(principal, agent, validAfter, validUntil, perCallMax, dailyBudget, totalBudget, payeeRoot, nonce);
-        if (mandates[id].active) revert AlreadyUsed();
+        // The id is a hash of the mandate's own parameters, so a revoked mandate
+        // leaves an inactive slot at the same id and its signature is still valid
+        // over that digest. Guarding only on `active` would let anyone holding the
+        // (public, non-secret) signature put the revoked mandate back in place.
+        // A mandate id is therefore spent forever, revoked or not.
+        if (mandateSeen[id]) revert AlreadyUsed();
+        mandateSeen[id] = true;
         if (!_recoverMandate(id, sig, principal)) revert BadSignature();
         if (credit.balanceOf(principal) < totalBudget) revert InsufficientCredit();
 
