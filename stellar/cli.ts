@@ -888,11 +888,16 @@ async function escrow() {
     console.log(describeChallenge(challenge));
     console.log(`\n  open:  ${flag("tls") ? `https://${PUBLIC_HOST}` : "http://127.0.0.1:4022"}/?k=${data.desk?.portalKey ?? "…"}`);
     console.log(`  the order id is ${hit.memo || hit.balanceId} — sign only if you delivered it.\n`);
-    // The challenge is written out so the phone flow can be completed by a
-    // running gateway rather than by retyping XDR into a terminal.
+    // Written out so the second signature can be added by whatever holds the
+    // approver key, without retyping XDR. Said exactly, because a promise here
+    // that nothing implements is a lie in the seller's terminal: no process
+    // reads this file back on its own.
     const file = path.replace(/\.json$/, ".escrow-release.json");
     writeFileSync(file, JSON.stringify({ order: hit.memo || hit.balanceId, challenge }, null, 2), { mode: 0o600 });
-    console.log(`challenge written to ${file} (0600). A running gateway picks the signature up from there.\n`);
+    console.log(`challenge written to ${file} (0600).`);
+    console.log(`nothing completes this by itself. finish it from a machine that holds the approver key,`);
+    console.log(`or run this command there. the phone approver releases PAYMENTS today; releasing ESCROW`);
+    console.log(`from the phone is not wired yet, so until it is, use the second key's machine.\n`);
     return;
   }
   const out = await claimEscrow(network, hit.balanceId, vault.address, { agent, approver: Keypair.fromSecret(keys.approver) });
