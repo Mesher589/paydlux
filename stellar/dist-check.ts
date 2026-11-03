@@ -54,8 +54,17 @@ let help = "";
 try {
   help = run(["--help"]);
 } catch {}
-for (const cmd of ["donate", "setup", "sell"]) {
+for (const cmd of ["donate", "setup", "sell", "escrow", "status", "approver", "withdraw", "usdc"]) {
   ok(`subcommand '${cmd}' listed`, help.includes(cmd));
+}
+
+// 3b. A command printed in the help text must be dispatched, or the user gets
+// "unknown command" from the tool's own documentation. This is how a published
+// product lies about itself: the help says `paydlux escrow`, the switch has no
+// case for it, and the seller types it once and gives up.
+for (const m of help.matchAll(/^  paydlux ([a-z]+)/gm)) {
+  const cli = readFileSync(new URL("../stellar/cli.ts", import.meta.url), "utf8");
+  ok(`'${m[1]}' is dispatched`, new RegExp(`cmd === "${m[1]}"`).test(cli));
 }
 
 // 4. donate must know about USDC, the thing this release is about.

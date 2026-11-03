@@ -27,6 +27,8 @@ import { PolicyEngine } from "./policy.ts";
 import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelRunning, tunnelServes } from "./tunnel.ts";
 import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase.ts";
 import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate.ts";
+import { claimEscrow, pendingEscrows, prepareEscrowRelease, refundEscrow } from "./escrow.ts";
+import { describeChallenge } from "./phone.ts";
 
 export const VAULT_FILE_DEFAULT = "paydlux-vault.json";
 
@@ -204,7 +206,13 @@ async function sell() {
   const price = arg("price") ?? data.policy?.defaultPrice ?? "1";
   if (!(Number(price) > 0)) bad("--price must be a positive number");
   const uri = arg("route") ?? "/api/data";
-  const mode = flag("preauth") ? "preauth" : "approval";
+  if (flag("preauth") && flag("escrow")) bad("--preauth and --escrow are different deals: pre-authorised payment, or payment held until delivery is proven. Pick one.");
+  const mode = flag("preauth") ? "preauth" : flag("escrow") ? "escrow" : "approval";
+  // How long the buyer's money stays locked. The seller needs this window to
+  // prove delivery; the buyer is the one who can walk away inside it. Too short
+  // and the seller never gets paid; too long and the buyer is stuck waiting.
+  const releaseSeconds = Number(arg("release") ?? 3600);
+  if (!(releaseSeconds >= 60)) bad("--release must be at least 60 seconds. A window shorter than that cannot be audited by either side.");
   const tls = flag("tls");
   const split = flag("split");
 
@@ -222,11 +230,20 @@ async function sell() {
   // started, because this is a mistake in the flags and not in the product.
   const priceNum = Number(price);
   if (!(priceNum > 0)) bad(`--price ${price} is not a number greater than zero.`);
-  if (priceNum > maxPer) {
-    bad(`--price ${price} is above --max ${maxPer}, so every payment would be refused by your own mandate.\n  raise --max to at least ${price} (for example --max ${price}) or lower --price.`);
-  }
-  if (priceNum > daily) {
-    bad(`--price ${price} is above --daily ${daily}: one payment would spend the whole day's budget and the second would be refused.\n  set --daily to at least ${price}.`);
+  // The mandate ceiling is a limit on what YOUR vault pays out. An escrow route
+  // takes money IN from the buyer, so the ceiling does not apply to it — and
+  // applying it would refuse a perfectly good escrow price for no reason.
+  if (mode === "escrow") {
+    if (priceNum > maxPer) {
+      log(`note: --escrow price ${price} is above --max ${maxPer}. That is fine here — escrow money comes FROM the buyer, so your spending mandate never touches it.`);
+    }
+  } else {
+    if (priceNum > maxPer) {
+      bad(`--price ${price} is above --max ${maxPer}, so every payment would be refused by your own mandate.\n  raise --max to at least ${price} (for example --max ${price}) or lower --price.`);
+    }
+    if (priceNum > daily) {
+      bad(`--price ${price} is above --daily ${daily}: one payment would spend the whole day's budget and the second would be refused.\n  set --daily to at least ${price}.`);
+    }
   }
 
   const vault = await StellarVault.load(
@@ -318,12 +335,12 @@ async function sell() {
     publicHost,
     agentKeys: [pub(keys.agent)],
     routes: [
-      { uri, price, mode, holdSeconds: Number(arg("hold") ?? 3600) },
+      { uri, price, mode, holdSeconds: Number(arg("hold") ?? 3600), releaseSeconds },
       // --showcase adds a second priced route for the public page. Same price,
       // same mandate, same desk: the showcase gets no special treatment at the
       // spending door, it only gets its own hostname.
       ...(flag("showcase")
-        ? [{ uri: DEMO_ROUTE, price, mode: mode as "approval" | "preauth", holdSeconds: Number(arg("hold") ?? 3600) }]
+        ? [{ uri: DEMO_ROUTE, price, mode: mode as "approval" | "preauth" | "escrow", holdSeconds: Number(arg("hold") ?? 3600), releaseSeconds }]
         : []),
     ],
     // The banner prints these numbers. This line is what makes them true.
@@ -786,6 +803,103 @@ async function withdraw() {
   console.log(`vault now holds ${await vault.balance()} ${data.token.code}`);
 }
 
+// ---------------------------------------------------------------------- escrow
+
+/**
+ * The seller's view of every escrow sold through this gateway.
+ *
+ * `paydlux escrow` lists what is locked, who locked it, and what the ledger
+ * says about each one. `paydlux escrow --release ord_…` takes the money — which
+ * needs both human keys, so on a --split vault it prints the challenge for the
+ * phone and stops, exactly like the approval desk does.
+ *
+ * Nothing here can take money early. The release timer is enforced by the
+ * ledger, not by this command: asking before the timer gets a sentence saying
+ * how long is left, and the network would refuse the transaction anyway.
+ */
+async function escrow() {
+  const { data, path } = loadVault();
+  const network = (data.network ?? "testnet") as Network;
+  const vault = await StellarVault.load(
+    data.vault, data.token.code, data.token.issuer,
+    {
+      principal: pub(data.keys.principal),
+      approver: data.keys.approver ? pub(data.keys.approver) : undefined,
+      agent: pub(data.keys.agent),
+    } as any,
+    network,
+  );
+  if (data.token.code === "USDC") vault.useUsdc();
+
+  const release = arg("release");
+  const refund = arg("refund");
+
+  if (refund) {
+    // The buyer's side, kept here so the protection is a command and not a
+    // paragraph. Needs the buyer's key, which this file does not hold unless
+    // the buyer is also the seller — so it reads it from the environment.
+    const seed = process.env.PAYDLUX_BUYER_SEED;
+    if (!seed) bad("--refund returns the BUYER's money, so it needs the buyer's key.\n  PAYDLUX_BUYER_SEED=S… paydlux escrow --refund <escrow id>");
+    const out = await refundEscrow(network, refund, Keypair.fromSecret(seed));
+    console.log(`refunded. the money is back in the buyer's account. tx ${out.txHash}`);
+    return;
+  }
+
+  // Anything the ledger has locked for this vault, whether or not this process
+  // remembers quoting it. A seller who restarted still has to see money that is
+  // already locked, or it looks like nothing was ever ordered.
+  const live = await pendingEscrows(network, vault.address);
+  const now = Math.floor(Date.now() / 1000);
+
+  if (!release) {
+    if (!live.length) {
+      console.log(`\nno escrow is locked for ${vault.address} right now.\n`);
+      console.log(`sell against escrow with:  paydlux sell --escrow --price 3.5 --release 3600\n`);
+      return;
+    }
+    console.log(`\nescrow locked for ${vault.address} on ${network === "public" ? "MAINNET" : "testnet"}\n`);
+    for (const e of live) {
+      const left = e.releaseAt - now;
+      console.log(`  ${e.memo || "(no order id)"}   ${e.amount} ${e.asset === "native" ? "XLM" : e.asset.split(":")[0]}`);
+      console.log(`    escrow   ${e.balanceId}`);
+      console.log(`    buyer    ${e.buyer}`);
+      console.log(`    ${left > 0 ? `buyer can still take it back for ${Math.ceil(left / 60)} more min` : `release timer passed — claimable now with both keys`}`);
+      if (left <= 0) console.log(`    release: paydlux escrow --release ${e.memo || e.balanceId}`);
+      console.log("");
+    }
+    console.log(`an escrow with no order id you recognise is money locked for a deal you never quoted. Do not release it: refund it.\n`);
+    return;
+  }
+
+  // Match on order id first (what a human reads), then on balance id (what a
+  // script has). Both are exact; a prefix is not accepted, because two order
+  // ids can share a prefix and money cannot be released "approximately".
+  const hit = live.find((e) => e.memo === release || e.balanceId === release);
+  if (!hit) bad(`nothing locked matches "${release}".\n  run \`paydlux escrow\` to list what is locked, and use the order id or the escrow id exactly as printed.`);
+  if (now < hit.releaseAt) {
+    bad(`the release timer has not passed: ${Math.ceil((hit.releaseAt - now) / 60)} min to go.\n  the buyer can still refund this money until then, so releasing it is not on the table.\n  the ledger would refuse this anyway — this command only says so earlier and in words.`);
+  }
+
+  const keys = data.keys ?? {};
+  const agent = Keypair.fromSecret(keys.agent);
+  if (!keys.approver) {
+    const challenge = await prepareEscrowRelease(network, hit.balanceId, vault.address, agent);
+    console.log(`\nthis laptop holds one of the two keys, so the release needs your phone.\n`);
+    console.log(describeChallenge(challenge));
+    console.log(`\n  open:  ${flag("tls") ? `https://${PUBLIC_HOST}` : "http://127.0.0.1:4022"}/?k=${data.desk?.portalKey ?? "…"}`);
+    console.log(`  the order id is ${hit.memo || hit.balanceId} — sign only if you delivered it.\n`);
+    // The challenge is written out so the phone flow can be completed by a
+    // running gateway rather than by retyping XDR into a terminal.
+    const file = path.replace(/\.json$/, ".escrow-release.json");
+    writeFileSync(file, JSON.stringify({ order: hit.memo || hit.balanceId, challenge }, null, 2), { mode: 0o600 });
+    console.log(`challenge written to ${file} (0600). A running gateway picks the signature up from there.\n`);
+    return;
+  }
+  const out = await claimEscrow(network, hit.balanceId, vault.address, { agent, approver: Keypair.fromSecret(keys.approver) });
+  console.log(`released ${hit.amount} for order ${hit.memo || "(no id)"}. tx ${out.txHash}`);
+  console.log(`vault now holds ${await vault.balance()} ${data.token.code}`);
+}
+
 // ----------------------------------------------------------------------- usdc
 
 /**
@@ -917,11 +1031,19 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
   paydlux setup [--mainnet] [--token USDC] [--fund-seed S…]
       create a vault. testnet by default (free, no wallet needed).
   paydlux sell  [--price 1] [--route /api/data] [--max N] [--daily N]
-                [--split] [--tls] [--preauth]
+                [--split] [--tls] [--preauth] [--escrow] [--release SECONDS]
       start the gateway and the approval desk.
       --max / --daily are your spending mandate: no single payment above --max,
       and nothing past --daily in a day. The desk refuses at the approve button,
       so a runaway agent cannot drain the vault even if you approve in error.
+      --escrow sells the route against escrow instead: the buyer locks the money
+      in a claimable balance you cannot touch until --release seconds have
+      passed, and the buyer can take it back any time before then. You get paid
+      by proving delivery before the timer, not by waiting for it.
+  paydlux escrow [--release ORD | --refund ESCROW_ID]
+      list what is locked for your vault, release one order, or take a buyer's
+      money back. Release needs both human keys; on a --split vault it prints
+      the challenge for your phone and stops there.
   paydlux donate [--file ./paydlux-vault.json] [--usdc] [--price 1] [--tls]
       a public door where other agents pay YOU from THEIR vault.
       --usdc prices the door in Circle USDC. It refuses to start unless the
@@ -1084,6 +1206,7 @@ export async function main() {
   if (cmd === "approver") return approver();
   if (cmd === "withdraw") return withdraw();
   if (cmd === "usdc") return usdc();
+  if (cmd === "escrow") return escrow();
   bad(`unknown command "${cmd}".\n\n${HELP}`);
 }
 

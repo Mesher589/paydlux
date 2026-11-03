@@ -6,7 +6,8 @@
 // The agent holds one key of two. It can ask, and it can execute a mandate a
 // human already signed. It cannot move money on its own — the ledger refuses.
 import { Horizon, Keypair, Transaction } from "@stellar/stellar-sdk";
-import { passphrase, type Mandate } from "./vault.ts";
+import { passphrase, parseToken, type Mandate } from "./vault.ts";
+import { createEscrow } from "./escrow.ts";
 
 const PAY_HEADER = "x-payment";
 
@@ -42,6 +43,13 @@ export type PayResponse<T = string> = {
   desk?: string;
   /** where THIS buyer polls for the answer (the gateway, no key needed) */
   statusUrl?: string;
+  /**
+   * Escrow mode: the seller's order id, and what the ledger now says about the
+   * locked money. `escrow.refundUntil` is the buyer's own protection — until
+   * that second the buyer can claim the money back without the seller.
+   */
+  order?: string;
+  escrow?: { id: string; amount: string; releaseAt: number; refundUntil: number; lockTx: string };
   reason?: string;
   requirements?: any;
 };
@@ -63,7 +71,7 @@ export class PaydluxAgent {
    * GET a paid resource. Handles the 402 handshake: read what the seller
    * wants, satisfy it, retry once with the proof attached.
    */
-  async get<T = string>(url: string, opts: { mandate?: Mandate; body?: string } = {}): Promise<PayResponse<T>> {
+  async get<T = string>(url: string, opts: { mandate?: Mandate; body?: string; buyerKey?: string } = {}): Promise<PayResponse<T>> {
     const f = this.cfg.fetch ?? fetch;
 
     const first = await f(url, { method: opts.body ? "POST" : "GET", body: opts.body });
@@ -72,6 +80,10 @@ export class PaydluxAgent {
     }
     const reqs = parseRequirements(first.headers.get(PAY_HEADER));
     if (!reqs) return { ok: false, status: 402, reason: "seller sent 402 without payment terms", requirements: null };
+    // The 402 body carries the order id for escrow routes: the memo on the
+    // buyer's lock transaction has to name it, so it must be known before any
+    // money is locked.
+    const j0: any = await first.json().catch(() => ({}));
 
     if (reqs.mode === "approval") {
       // Tell the seller we want it. The seller parks the request at the
@@ -91,6 +103,51 @@ export class PaydluxAgent {
       return { ok: false, status: parked.status, handle: j.handle, error: j.error, desk: j.desk,
         statusUrl: j.statusUrl, requirements: reqs,
         reason: j.reason ?? "a human has to approve this payment" };
+    }
+
+    if (reqs.mode === "escrow") {
+      // Escrow is the opposite of the other two modes: the buyer keeps the
+      // power. The money is locked in a claimable balance the seller cannot
+      // touch until the release timer, and the buyer can reclaim it any time
+      // before then. So the buyer needs its OWN funding key here — not the
+      // agent key, which is a signer on a vault and has no business paying.
+      if (!opts.buyerKey) {
+        return { ok: false, status: 402, requirements: reqs,
+          reason: "this route is sold against escrow; pass buyerKey (the account that funds the escrow)" };
+      }
+      const orderId = j0.order ?? reqs.order;
+      if (!orderId) return { ok: false, status: 402, requirements: reqs, reason: "seller did not name an order id" };
+      const buyerKp = Keypair.fromSecret(opts.buyerKey);
+      const releaseSeconds = Number(reqs.escrow?.releaseSeconds ?? 3600);
+      let locked;
+      try {
+        locked = await createEscrow(this.cfg.network!, {
+          orderId,
+          asset: parseToken(String(reqs.token?.code ?? "XLM"), reqs.token?.issuer),
+          amount: String(reqs.maxAmountRequired),
+          buyer: buyerKp.publicKey(),
+          vault: reqs.escrow?.vault ?? reqs.vault,
+          releaseAt: Math.floor(Date.now() / 1000) + releaseSeconds,
+        }, buyerKp);
+      } catch (e) {
+        return { ok: false, status: 402, requirements: reqs, order: orderId,
+          reason: `could not lock the escrow: ${(e as Error).message}` };
+      }
+      const retry = await f(url, {
+        method: opts.body ? "POST" : "GET", body: opts.body,
+        headers: { [PAY_HEADER]: JSON.stringify({ escrow: locked.escrow.balanceId }) },
+      });
+      const j: any = await retry.json().catch(() => ({}));
+      if (retry.status === 200) {
+        return {
+          ok: true, status: 200, data: (j.data ?? j) as T, requirements: reqs,
+          order: j.order, escrow: j.escrow,
+          // The buyer's protection, spelled out: until escrow.refundUntil this
+          // money is still claimable back by the buyer, no seller consent needed.
+          tx: j.escrow?.lockTx,
+        };
+      }
+      return { ok: false, status: retry.status, reason: j.reason ?? "escrow refused", requirements: reqs, order: orderId };
     }
 
     if (!opts.mandate) {

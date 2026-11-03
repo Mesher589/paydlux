@@ -19,3 +19,12 @@ export {
 } from "./phone.ts";
 export { txResultName } from "./vault.ts";
 export type { ApprovalChallenge } from "./phone.ts";
+// Escrow: native claimable balances, not a contract. The buyer locks the money,
+// the seller cannot touch it until the release timer, and the buyer can always
+// take it back before then.
+export {
+  createEscrow, verifyEscrow, readEscrow, claimEscrow, refundEscrow,
+  escrowOutcome, pendingEscrows, escrowBalanceId,
+  assetToHorizonString, assetFromHorizonString,
+} from "./escrow.ts";
+export type { EscrowTerms, Escrow, EscrowCheck } from "./escrow.ts";
