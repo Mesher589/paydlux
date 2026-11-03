@@ -12,6 +12,7 @@
     "stellar/index.ts",
     "stellar/vault.ts",
     "stellar/gateway.ts",
+    "stellar/escrow.ts",
     "stellar/agent.ts",
     "stellar/desk.ts",
     "stellar/portal.ts",

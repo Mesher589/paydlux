@@ -1,7 +1,7 @@
 // Paydlux gateway on Stellar — an HTTP resource server that answers 402 and
 // only serves the body once payment has actually landed on the ledger.
 //
-// Two modes per route:
+// Three modes per route:
 //
 //   preauth   the human already registered a mandate envelope for this seller
 //             and amount. The gateway hands it over, the agent signs, submits,
@@ -11,6 +11,11 @@
 //             holds it at the approval desk, and a person approves or denies.
 //             On approval the vault releases with principal + approver.
 //
+//   escrow    the buyer locks the money in a claimable balance the seller
+//             cannot touch until the release timer passes. Delivery has to be
+//             proven before that timer, and releasing still needs both human
+//             keys. Until then the buyer can always take it back.
+//
 // Either way the agent's key alone can never move money: threshold is 2.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { createHash } from "node:crypto";
@@ -18,13 +23,15 @@ import { Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
 import { StellarVault, StellarTxError, hex, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
 import { ApprovalDesk, type DeskStore } from "./desk.ts";
 import type { PolicyEngine } from "./policy.ts";
+import { claimEscrow, escrowOutcome, horizonUrl, prepareEscrowRelease, readEscrow, verifyEscrow } from "./escrow.ts";
+import { submitApproved } from "./phone.ts";
 
 export const PAY_HEADER = "x-payment";
 
 export type Route = {
   uri: string;
   price: Amount;
-  mode: "preauth" | "approval";
+  mode: "preauth" | "approval" | "escrow";
   /** seconds the seller's content stays reserved while a human decides */
   holdSeconds?: number;
   /**
@@ -32,6 +39,12 @@ export type Route = {
    * holdSeconds. Set it to 0 to make every single call cost its own approval.
    */
   collectSeconds?: number;
+  /**
+   * escrow mode: how long the buyer keeps the right to take their money back.
+   * The seller cannot touch the money before this passes, so it is also the
+   * deadline for proving delivery. Default 3600.
+   */
+  releaseSeconds?: number;
 };
 
 export type GatewayConfig = {
@@ -85,6 +98,12 @@ export type PaymentProof = {
   mandateHash?: string;
   /** approval mode: a signed statement of what the agent wants to buy */
   intent?: { payload: string; signature: string };
+  /**
+   * escrow mode: the id of the claimable balance the BUYER locked for this
+   * order. The money is not the seller's yet — it becomes claimable after the
+   * release timer, and only with both human keys.
+   */
+  escrow?: string;
 };
 
 export class Gateway {
@@ -117,6 +136,80 @@ export class Gateway {
   async syncMandates() {
     const s = await this.cfg.vault.signerSummary();
     return s.signers.filter((x: { type: string }) => x.type === "preauth-mandate");
+  }
+
+  /**
+   * Escrow orders this gateway has issued, keyed by order id.
+   *
+   * The order id is the ONLY link between a pile of money on the ledger and a
+   * piece of content behind a route: Horizon does not put a memo on the balance
+   * record, so matching money to a deal means reading the memo off the creating
+   * transaction and comparing it to an order we recognise. An escrow whose memo
+   * matches nothing here is money locked for a deal this seller never quoted, so
+   * it buys nothing.
+   */
+  private orders = new Map<string, {
+    id: string; uri: string; price: Amount; at: number;
+    escrowId?: string; releaseAt?: number; served: number;
+  }>();
+
+  /**
+   * A stable order id for one request. Deterministic on purpose: a buyer who
+   * retries while the escrow settles must land on the same order, and a seller
+   * who restarts must be able to recognise the memo on money already locked.
+   * It is not a secret and it is not a capability — holding an id buys nothing
+   * without the matching escrow on the ledger.
+   */
+  orderId(uri: string, price: Amount, body: string): string {
+    return "ord_" + createHash("sha256")
+      .update(`${this.cfg.vault.address}|${uri}|${price}|${body}`).digest("hex").slice(0, 16);
+  }
+
+  /** Escrow orders, oldest first, with whatever the ledger says about each. */
+  async escrowOrders(opts: { includeSettled?: boolean } = {}) {
+    const out = [];
+    for (const o of this.orders.values()) {
+      const e = o.escrowId ? await readEscrow(this.cfg.vault.network, o.escrowId) : null;
+      const outcome = o.escrowId ? await escrowOutcome(this.cfg.vault.network, o.escrowId) : { settled: false };
+      const now = Math.floor(Date.now() / 1000);
+      const state = e
+        ? (now >= e.releaseAt ? "releasable" : "locked")
+        : outcome.settled ? "released" : o.escrowId ? "gone" : "awaiting_escrow";
+      if (state === "released" && !opts.includeSettled) continue;
+      out.push({ ...o, state, escrow: e, outcome });
+    }
+    return out.sort((a, b) => (a.releaseAt ?? 0) - (b.releaseAt ?? 0));
+  }
+
+  /**
+   * Take the money the buyer locked. Two keys, always — the vault's threshold
+   * is 2, so a stolen agent key cannot empty an escrow on its own.
+   */
+  async releaseEscrow(orderId: string, keys: { agent: Parameters<typeof claimEscrow>[3]["agent"]; approver: Parameters<typeof claimEscrow>[3]["approver"] }) {
+    const o = this.orders.get(orderId);
+    if (!o?.escrowId) throw new Error(`no escrow locked for order ${orderId}`);
+    const out = await claimEscrow(this.cfg.vault.network, o.escrowId, this.cfg.vault.address, keys);
+    this.settled.add("escrow:" + o.escrowId);
+    return out;
+  }
+
+  /**
+   * The split-key release: build the claim, sign it with the agent key, and
+   * hand it to the phone. This process cannot finish it — that is the point.
+   */
+  async escrowReleaseChallenge(orderId: string, agent: Keypair) {
+    const o = this.orders.get(orderId);
+    if (!o?.escrowId) throw new Error(`no escrow locked for order ${orderId}`);
+    return prepareEscrowRelease(this.cfg.vault.network, o.escrowId, this.cfg.vault.address, agent);
+  }
+
+  /** Take the phone's signature back and settle the escrow on the ledger. */
+  async submitEscrowRelease(signedXdr: string, orderId: string) {
+    const o = this.orders.get(orderId);
+    if (!o?.escrowId) throw new Error(`no escrow locked for order ${orderId}`);
+    const out = await submitApproved(signedXdr, this.cfg.vault.network, this.cfg.vault.horizon);
+    this.settled.add("escrow:" + o.escrowId);
+    return out;
   }
 
   /** Register a pre-authorised mandate for a route (needs both human keys). */
@@ -166,8 +259,8 @@ export class Gateway {
 
   requirements(uri: string) {
     const r = this.routes.get(uri)!;
-    return {
-      scheme: "stellar-exact",
+    const base = {
+      scheme: r.mode === "escrow" ? "stellar-escrow" : "stellar-exact",
       network: `stellar:${this.cfg.network}`,
       maxAmountRequired: r.price,
       resource: uri,
@@ -177,6 +270,20 @@ export class Gateway {
       mode: r.mode,
       maxTimeoutSeconds: r.holdSeconds ?? 3600,
       version: "1",
+    };
+    if (r.mode !== "escrow") return base;
+    // An escrow route tells the buyer how to lock the money, not just what to
+    // pay. Without the release window in the 402 the buyer cannot compute a
+    // valid timer, and the seller has no deadline to prove delivery against.
+    return {
+      ...base,
+      escrow: {
+        vault: this.cfg.vault.address,
+        releaseSeconds: r.releaseSeconds ?? 3600,
+        // The memo on the creating transaction must be this order id, or the
+        // money cannot be matched to a deal and buys nothing.
+        memoMustBe: "the order id returned in this response",
+      },
     };
   }
 
@@ -257,16 +364,76 @@ export class Gateway {
 
       if (!raw) {
         const reqs = this.requirements(uri);
-        res.writeHead(402, { [PAY_HEADER]: JSON.stringify(reqs) });
-        res.end(JSON.stringify({ error: "payment_required", accepts: reqs }));
+        // An escrow buyer has to know the order id BEFORE locking the money,
+        // because the memo on the creating transaction is the only thing that
+        // ties that pile of money to this deal. Hand it out in the 402.
+        const order = r.mode === "escrow" ? { order: this.orderId(uri, r.price, body) } : {};
+        res.writeHead(402, { [PAY_HEADER]: JSON.stringify({ ...reqs, ...order }) });
+        res.end(JSON.stringify({ error: "payment_required", accepts: reqs, ...order }));
         return;
       }
 
       let proof: PaymentProof;
       try { proof = JSON.parse(String(raw)); }
       catch { res.writeHead(400).end("bad payment header"); return; }
-      if (!proof.intent && !proof.envelope) {
-        res.writeHead(400).end("payment header needs an envelope or an intent"); return;
+      if (!proof.intent && !proof.envelope && !proof.escrow) {
+        res.writeHead(400).end("payment header needs an envelope, an intent, or an escrow id"); return;
+      }
+
+      // escrow mode: the buyer locked the money in a claimable balance. The
+      // seller cannot claim it yet — that is the whole deal. Serving the body
+      // now means the buyer still holds the refund right, so the seller's
+      // incentive is to deliver first and release later.
+      if (r.mode === "escrow") {
+        if (!proof.escrow) {
+          res.writeHead(402, { [PAY_HEADER]: JSON.stringify(this.requirements(uri)) });
+          res.end(JSON.stringify({ error: "escrow_required", reason: "this route is sold against escrow: lock the payment in a claimable balance first", escrow: (this.requirements(uri) as any).escrow }));
+          return;
+        }
+        const id = this.orderId(uri, r.price, body);
+        const releaseSeconds = r.releaseSeconds ?? 3600;
+        const check = await verifyEscrow(this.cfg.vault.network, proof.escrow, {
+          orderId: id,
+          asset: this.cfg.vault.token,
+          amount: r.price,
+          vault: this.cfg.vault.address,
+          releaseAt: 0, // not compared; the window checks below do the work
+        }, { minReleaseSeconds: 1, maxReleaseSeconds: releaseSeconds + 300 });
+        if (!check.ok || !check.escrow) {
+          res.writeHead(402, { [PAY_HEADER]: JSON.stringify(this.requirements(uri)) });
+          res.end(JSON.stringify({ error: "escrow_invalid", order: id, reason: check.reason }));
+          return;
+        }
+        const prior = this.orders.get(id);
+        this.orders.set(id, {
+          id, uri, price: r.price, at: prior?.at ?? Date.now(),
+          escrowId: proof.escrow, releaseAt: check.escrow.releaseAt,
+          served: (prior?.served ?? 0) + 1,
+        });
+        const content = getContent(uri);
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "x-payment-response": JSON.stringify({
+            escrow: proof.escrow, order: id,
+            releaseAt: check.escrow.releaseAt,
+            lockTx: check.escrow.txHash,
+          }),
+        });
+        res.end(JSON.stringify({
+          data: content,
+          order: id,
+          escrow: {
+            id: proof.escrow,
+            amount: check.escrow.amount,
+            releaseAt: check.escrow.releaseAt,
+            // The buyer's own refund right, spelled out so a client can act on
+            // it without reading a spec: claim the balance back before this
+            // second, no seller consent needed.
+            refundUntil: check.escrow.releaseAt,
+            lockTx: check.escrow.txHash,
+          },
+        }));
+        return;
       }
 
       // approval mode: the agent sends a signed intent, a human decides
