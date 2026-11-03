@@ -33,6 +33,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "test:dist": "npm run build && tsx stellar/dist-check.ts",
     "demo": "node sdk/demo.ts",
     "demo:stellar": "tsx stellar/demo.ts",
     "setup:stellar": "tsx stellar/onboard.ts",

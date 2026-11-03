@@ -21,8 +21,8 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Gateway } from "./gateway";
-import { PAY_HEADER } from "./gateway";
+import type { Gateway } from "./gateway.ts";
+import { PAY_HEADER } from "./gateway.ts";
 
 export const DEMO_HOST = "demo.paydlux.com";
 export const DEMO_ROUTE = "/demo/data";
