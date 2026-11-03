@@ -218,6 +218,26 @@ EIP-712 types. `sdk/abi/AgentVault.json` is regenerated.
 bypass, each asserting the refusal, plus two proving an allowlisted payee can
 still stream — the fix must not quietly kill the feature it is guarding.
 
+## A revoked mandate could be put back (`contracts/`, fixed)
+
+Reported by **Kupia** (sales@kupia.io).
+
+`registerMandate()` guarded with `if (mandates[id].active) revert AlreadyUsed()`. The mandate
+id is a hash of the mandate's own parameters, so `revokeMandate()` left an *inactive* slot at
+that same id — and the principal's signature over that digest stays valid forever. Anyone
+holding the signature could re-register the revoked mandate exactly as it was: the agent, or
+anyone who read the signature off the registration transaction, which is public. Revocation was
+advice, not a control.
+
+Fixed by making a mandate id spent forever: `mandateSeen` is set at registration and never
+cleared. Resuming requires a new nonce, which is what makes the revocation mean something — the
+old id can never come back. `contracts/test/MandateRevocation.t.sol` covers the replay, the
+case that must keep working (a new nonce after a revocation), and that a registration failing on
+a bad signature does not burn an id.
+
+The Stellar path is not affected: there the mandate is a pre-authorised transaction hash held as
+a *signer*, and revoking removes the signer. There is no id to re-register.
+
 There is still **no audit** and **no real money** in the EVM prototype.
 
 ## Safe harbour
