@@ -546,9 +546,11 @@ async function setup() {
   afterwards, because the vault's own keys are made fresh right now and its
   master key is switched off in the same transaction that creates it.
 
-  The wallet must already EXIST on mainnet. A brand-new Stellar address cannot
-  be paid into — the ledger refuses with op_no_account — so buy XLM on an
-  exchange and withdraw it to a wallet, or send from an existing account.`);
+  If this wallet is brand new it does not exist on the ledger yet, and a plain
+  payment to it fails with op_no_account. It has to receive its first XLM from
+  something that creates the account for you: an exchange withdrawal does this
+  automatically, or any wallet with an "activate"/"fund new address" flow.
+  1 XLM activates it; you need ${need} here.`);
     }
     funder = Keypair.fromSecret(seed);
     const h = new (await import("@stellar/stellar-sdk")).Horizon.Server("https://horizon.stellar.org");
