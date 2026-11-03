@@ -112,6 +112,28 @@ curl -s "https://${DONATE_HOST}/donate?order=ORDER&amp;tx=TXHASH"</pre>
   network <code>${cfg.network === "public" ? "mainnet" : "testnet"}</code></p>
  </div>
 
+ <div class="card">
+  <p><strong>What it buys, and why a laptop isn't enough</strong></p>
+  <p class="muted">The code is written, it runs, and it is public. What it does not have is
+  the boring infrastructure real money needs:</p>
+  <ul class="muted">
+   <li><strong>An always-on machine.</strong> Right now the gateway, the desk and this page
+       run on a founder's MacBook. Close the lid and a buyer is parked mid-payment. A
+       payment system that sleeps when its author sleeps is not a payment system.</li>
+   <li><strong>Settlement capital.</strong> A payment rail needs money moving through it.
+       Stellar pays grants in XLM — the same asset this settles in, which is why this is a
+       Stellar project and not an EVM one.</li>
+   <li><strong>An installable approver app.</strong> The money-critical half of this product
+       is currently a browser tab. It should be a signed app on your phone.</li>
+   <li><strong>An external audit.</strong> The whole promise is that a human authorises the
+       money. If the signing path has a bug, the promise is worth less than nothing, and we
+       should not be the only people who looked.</li>
+  </ul>
+  <p class="muted">Everything else — the mandate engine, the ledger verification, the
+  refusals — already exists, and every refusal this page makes is covered by a test that
+  forges a payment and checks that it is rejected. That part is not the ask.</p>
+ </div>
+
  <footer>Paydlux · HTTP 402 for agents, a thumb for humans · <a href="https://paydlux.com">paydlux.com</a></footer>
 </main>
 <script src="/donate.js"></script>
