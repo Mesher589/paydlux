@@ -177,6 +177,49 @@ above. Upgrade to `0.1.7`.
 There is still **no audit** and **no real money**. Do not put real funds
 anywhere near this.
 
+## The EVM session path skipped the mandate's rules (`contracts/`, fixed)
+
+Reported by **blacklitosphere88** (GitHub issue #1, then email). Real, and
+confirmed by a Foundry proof before anything was changed.
+
+`AgentVault.sol` had two doors into the same budget. `settle()` checked the
+mandate's rules. `openSession()` + `charge()` re-implemented the spend path and
+dropped them. An agent holding only the AGENT key — exactly the compromised
+agent the contract's own docstring promises to contain — could:
+
+| The principal configured | On the session path |
+|---|---|
+| payee allowlist (`payeeRoot`) | ignored — drain to any address, including the agent's own |
+| human approval on every payment (`requiresApproval`) | ignored — no approver signature needed |
+| per-call ceiling (`perCallMax`) | ignored — one `charge()` moved the whole budget |
+| expiry / revocation | ignored at open, and an open session kept paying after |
+
+Only the daily and total budgets held, because both paths route through
+`_debit()`. So the two guarantees that matter most — "only my approved sellers"
+and "a human signs every payment" — protected against nothing for the actor they
+exist to contain. The tests missed it because every session test used a mandate
+with an empty allowlist and no approval policy, so the gap had no test that
+could see it.
+
+Fixed by making the session path enforce the same policy: the allowlist is
+checked at `openSession()` (the payee is fixed for the session's life, so one
+check covers every later deduction), `perCallMax` is checked per `charge()`, and
+the mandate window plus revocation are checked on both calls. A mandate that
+requires a human over every payment now refuses sessions outright rather than
+silently downgrading the policy — one signature paying many times is the
+opposite of a human signing each intent.
+
+`openSession()` gained a `payeeProof` argument, so its signature changed. That
+breaks any caller written against the old ABI. Nothing shipped calls it: the
+Stellar path never had sessions, and the EVM SDK only mirrors the (unchanged)
+EIP-712 types. `sdk/abi/AgentVault.json` is regenerated.
+
+`contracts/test/SessionPolicy.t.sol` is the regression suite: 11 tests, one per
+bypass, each asserting the refusal, plus two proving an allowlisted payee can
+still stream — the fix must not quietly kill the feature it is guarding.
+
+There is still **no audit** and **no real money** in the EVM prototype.
+
 ## Safe harbour
 
 Research done in good faith against testnet, following this policy, is

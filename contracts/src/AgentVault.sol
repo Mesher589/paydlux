@@ -565,18 +565,39 @@ contract AgentVault {
     /// @notice Open a spend session: the agent pre-authorizes a ceiling and the
     ///         payee deducts as it serves. One signature, many charges — this is
     ///         what makes sub-cent calls economic.
+    /// @dev A session is a second door into the same budget as settle(), so it
+    ///      has to carry the same policy. Everything the principal configured on
+    ///      the mandate is enforced here: the validity window, the payee
+    ///      allowlist, and the approval requirement. The per-call ceiling is
+    ///      enforced per charge() instead, since a session exists precisely to
+    ///      make many small calls.
+    /// @dev A mandate that requires a human over every payment cannot be spent
+    ///      through a session at all: one signature paying many times is the
+    ///      opposite of a human signing each intent. Refusing at the door is
+    ///      honest; silently downgrading the policy would not be.
     function openSession(
         bytes32 mandateId,
         address payee,
         uint128 maxAmount,
         uint64 validUntil,
         uint256 nonce,
+        bytes32[] calldata payeeProof,
         bytes calldata sig
     ) external notPaused returns (bytes32 sessionId) {
         Mandate storage m = mandates[mandateId];
         if (!m.active) revert MandateInactive();
+
+        uint64 nowT = uint64(block.timestamp);
+        if (nowT < m.validAfter || nowT > m.validUntil) revert MandateWindow();
+        if (validUntil > m.validUntil) revert MandateWindow();
+        if (m.requiresApproval) revert ApprovalRequired();
+
+        // The payee is fixed for the life of the session and charge() pays only
+        // s.payee, so one allowlist check here covers every later deduction.
+        if (!_payeeAllowed(m.payeeRoot, payee, payeeProof)) revert PayeeNotAllowed();
+
         if (maxAmount == 0 || m.spent + maxAmount > m.totalBudget) revert OverBudget();
-        if (uint64(block.timestamp) > validUntil) revert SessionExpired();
+        if (nowT > validUntil) revert SessionExpired();
 
         bytes32 replayKey = keccak256(abi.encodePacked("session", mandateId, nonce));
         if (sessionNonceUsed[replayKey]) revert AlreadyUsed();
@@ -609,6 +630,19 @@ contract AgentVault {
         if (amount == 0) revert BadAmount();
         if (s.charged + amount > s.maxAmount) revert OverSession();
 
+        // A session must not outlive the mandate that opened it. Revocation and
+        // expiry bite here too, not only at open: otherwise a session opened
+        // while the mandate was live keeps paying after the principal pulled it.
+        Mandate storage m = mandates[s.mandateId];
+        if (!m.active) revert MandateInactive();
+        if (nowT > m.validUntil) revert MandateWindow();
+        // Policy can be tightened after a session opened; the current policy is
+        // what counts, so an approval-gated mandate cannot charge at all.
+        if (m.requiresApproval) revert ApprovalRequired();
+        // The per-call ceiling holds on this path too: the session ceiling
+        // bounds the stream, perCallMax bounds each drop inside it.
+        if (amount > m.perCallMax) revert OverPerCall();
+
         bytes32 digest = keccak256(
             abi.encodePacked(
                 "\x19\x01",
@@ -616,7 +650,6 @@ contract AgentVault {
                 keccak256(abi.encode(CHARGE_TYPEHASH, sessionId, amount, nonce, validUntil))
             )
         );
-        Mandate storage m = mandates[s.mandateId];
         if (_recover(digest, sig) != m.agent) revert BadSignature();
 
         s.charged += amount;
