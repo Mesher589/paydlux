@@ -412,7 +412,7 @@ contract AgentVaultTest is Test {
         uint64 validUntil = uint64(block.timestamp + 3600);
         bytes32 structHash = keccak256(abi.encode(vault.SESSION_TYPEHASH(), mandateId, payee, 20 * UNIT, validUntil, sNonce));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash)));
-        bytes32 sessionId = vault.openSession(mandateId, payee, 20 * UNIT, validUntil, sNonce, abi.encodePacked(r, s, v));
+        bytes32 sessionId = vault.openSession(mandateId, payee, 20 * UNIT, validUntil, sNonce, new bytes32[](0), abi.encodePacked(r, s, v));
 
         // 200 sub-cent charges inside one session
         for (uint256 i = 1; i <= 200; i++) {
@@ -430,7 +430,7 @@ contract AgentVaultTest is Test {
         uint64 validUntil = uint64(block.timestamp + 3600);
         bytes32 structHash = keccak256(abi.encode(vault.SESSION_TYPEHASH(), mandateId, payee, 1 * UNIT, validUntil, sNonce));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash)));
-        bytes32 sessionId = vault.openSession(mandateId, payee, 1 * UNIT, validUntil, sNonce, abi.encodePacked(r, s, v));
+        bytes32 sessionId = vault.openSession(mandateId, payee, 1 * UNIT, validUntil, sNonce, new bytes32[](0), abi.encodePacked(r, s, v));
 
         uint64 vu = uint64(block.timestamp + 3600);
         bytes32 ch = keccak256(abi.encode(vault.CHARGE_TYPEHASH(), sessionId, 2 * UNIT, 1, vu));
