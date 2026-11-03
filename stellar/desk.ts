@@ -402,6 +402,10 @@ export class ApprovalDesk {
         amount: rec.price,
         tokenCode: this.cfg.vault.token.getCode(),
         tokenIssuer: this.cfg.vault.token.getIssuer() ?? "",
+        // Stated, not inferred from the name: a token someone issued and
+        // called XLM must not be turned into native XLM on the way to the
+        // phone, because that would change what the human is approving.
+        native: this.cfg.vault.isNative,
         network: this.cfg.vault.network,
         horizon: this.cfg.vault.horizon,
         id: rec.id,

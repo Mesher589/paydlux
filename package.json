@@ -49,11 +49,15 @@
     "test:seed": "DEVELOPER_DIR=/Library/Developer/CommandLineTools /usr/bin/swiftc -target arm64-apple-macosx14.0 ios/PaydluxApprover/Seed.swift ios/PaydluxApprover/Hex.swift ios/Checks/main.swift -o \"$TMPDIR/seedcheck\" && \"$TMPDIR/seedcheck\"",
     "typecheck": "tsc --noEmit",
     "app": "tsx stellar/cli.ts",
-    "app:mainnet": "tsx stellar/cli.ts setup --mainnet",
+    "app:mainnet": "tsx stellar/cli.ts setup --mainnet --file paydlux-mainnet.json --token XLM --max 2 --daily 20",
     "test:showcase": "tsx stellar/showcase-check.ts",
     "test:native": "tsx stellar/native-check.ts",
     "test:receive": "tsx stellar/receive-check.ts",
-    "test:xlm": "tsx stellar/xlm-check.ts"
+    "test:xlm": "tsx stellar/xlm-check.ts",
+    "test:donate": "tsx stellar/donate-check.ts",
+    "donate:live": "tsx stellar/donate-live.ts",
+    "app:mainnet:sell": "tsx stellar/cli.ts sell --file paydlux-mainnet.json --split --tls --showcase --donate --price 1 --route /market/data --max 2 --daily 20",
+    "app:testnet:sell": "tsx stellar/cli.ts sell --split --tls --showcase --donate --price 1 --route /market/data --max 10 --daily 50"
   },
   "keywords": [
     "x402",

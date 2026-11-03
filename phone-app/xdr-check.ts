@@ -76,6 +76,49 @@ const main = async () => {
   ok(parsed.tx.bounds !== null, "the approval deadline is visible to the phone");
   ok(parsed.signatures.length === 1, "the phone sees exactly one signature so far (the seller's)");
 
+  // ------------------------------------------------------- native XLM payment
+  // The public demo settles in XLM, so the phone must decode a native payment
+  // too — and must NOT show it as a token with an issuer, because "who issued
+  // it" is the line the human reads to decide if the money is real.
+  console.log("\n\u2014 a payment in the ledger's own currency");
+  const xlmVault = await StellarVault.create({
+    network: "testnet", issuer, principal, approver, agent, tokenCode: "XLM",
+  });
+  const xlmChallenge = await createApprovalChallenge({
+    vaultAddress: xlmVault.address, principal, payee: seller.publicKey(),
+    tokenCode: "XLM", tokenIssuer: "", native: true, network: "testnet",
+    horizon, memo: "pay_x1", amount: "1.25", id: "pay_x1", decideWithinSeconds: 3600,
+  });
+  const xp = X.parseEnvelope(xlmChallenge.xdr).tx.ops[0];
+  ok(xp.asset.code === "XLM" && xp.asset.issuer === null,
+    `native XLM decodes as XLM with NO issuer (got ${xp.asset.code}/${xp.asset.issuer})`);
+  ok(X.formatAmount(xp.amount) === "1.2500000", `the XLM amount reads as ${X.formatAmount(xp.amount)}`);
+  const xhash = await X.transactionHash(xlmChallenge.xdr, X.NETWORK_ID.testnet);
+  ok(xhash.hash === xlmChallenge.hash, "the phone recomputes the XLM payment's hash");
+
+  // The name is not the asset. A token someone issued and CALLED XLM must stay
+  // a token: if the builder inferred native from the name, the human would
+  // approve "1 XLM, no issuer" while the ledger settled a token payment.
+  const fake = new TransactionBuilder(await horizon.loadAccount(xlmVault.address),
+    { fee: "100", networkPassphrase: passphrase("testnet") })
+    .addOperation(Operation.payment({
+      destination: seller.publicKey(), asset: new Asset("XLM", issuer.publicKey()), amount: "1.25",
+    })).setTimeout(120).build();
+  fake.sign(principal);   // the decoder refuses an unsigned envelope on purpose
+  const fakeParsed = X.parseEnvelope(fake.toXDR()).tx.ops[0];
+  ok(fakeParsed.asset.issuer === issuer.publicKey(),
+    "a token someone issued and named XLM still shows its issuer on the phone");
+  let unsigned = "";
+  try {
+    const bare = new TransactionBuilder(await horizon.loadAccount(xlmVault.address),
+      { fee: "100", networkPassphrase: passphrase("testnet") })
+      .addOperation(Operation.payment({
+        destination: seller.publicKey(), asset: Asset.native(), amount: "1.25",
+      })).setTimeout(120).build();
+    X.parseEnvelope(bare.toXDR());
+  } catch (e: any) { unsigned = e.message; }
+  ok(/signature/.test(unsigned), `an unsigned envelope is refused: ${unsigned.slice(0, 46)}`);
+
   // ---------------------------------------------------------------- hash
   console.log("\n\u2014 the hash the human is shown");
   const { hash } = await X.transactionHash(challenge.xdr, X.NETWORK_ID.testnet);
