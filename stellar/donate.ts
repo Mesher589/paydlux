@@ -13,9 +13,9 @@
 //
 // Nothing here holds a buyer key. We publish terms; they sign at home; the
 // ledger is the only witness we accept.
-import { startReceive } from "./receive";
-import type { Network } from "./receive";
-import { qrSvg } from "./qr";
+import { startReceive } from "./receive.ts";
+import type { Network } from "./receive.ts";
+import { qrSvg } from "./qr.ts";
 
 export const DONATE_HOST = "donate.paydlux.com";
 export const DONATE_PORT = 4024;

@@ -24,9 +24,9 @@ import { StellarVault, USDC_ISSUER, passphrase, type Network } from "./vault.ts"
 import { Gateway } from "./gateway.ts";
 import { newPortalKey } from "./desk.ts";
 import { PolicyEngine } from "./policy.ts";
-import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelRunning, tunnelServes } from "./tunnel";
-import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase";
-import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate";
+import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelRunning, tunnelServes } from "./tunnel.ts";
+import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase.ts";
+import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate.ts";
 
 export const VAULT_FILE_DEFAULT = "paydlux-vault.json";
 
@@ -922,6 +922,13 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
       --max / --daily are your spending mandate: no single payment above --max,
       and nothing past --daily in a day. The desk refuses at the approve button,
       so a runaway agent cannot drain the vault even if you approve in error.
+  paydlux donate [--file ./paydlux-vault.json] [--usdc] [--price 1] [--tls]
+      a public door where other agents pay YOU from THEIR vault.
+      --usdc prices the door in Circle USDC. It refuses to start unless the
+      vault already holds a USDC trustline: without one every payment bounces
+      with OP_NO_TRUST and the page looks broken forever.
+  paydlux usdc [--file ./paydlux-vault.json]
+      add that USDC trustline — one claimable, so the human half signs it.
   paydlux status
       balances, signers, live mandates, ledger rent.
   paydlux approver [--forget]
@@ -952,6 +959,22 @@ one file holds it all: ./paydlux-vault.json (0600, never commit it)
  *    seller's money. Fewer moving parts means less that can leak.
  */
 async function donate() {
+  if (flag("help") || process.argv.includes("-h")) {
+    console.log(`paydlux donate [--file ./paydlux-vault.json] [--usdc] [--price 1]
+                [--tls] [--port ${DONATE_PORT}]
+      a public door where other agents pay YOU from THEIR vault.
+
+      --usdc     price the door in Circle USDC instead of the vault file's
+                 token. Refuses to start unless the vault already holds a
+                 USDC trustline (run: paydlux usdc) — without one every
+                 payment bounces with OP_NO_TRUST and the page looks broken.
+      --price N  what a donation costs, in the asset's own units.
+      --tls      required in practice: an order and its memo over plain HTTP
+                 can be taken by anyone on the path.
+      --port N   local port (default ${DONATE_PORT}); the public name is
+                 ${DONATE_HOST}, routed by the tunnel.`);
+    return;
+  }
   const path = arg("file") ?? VAULT_FILE_DEFAULT;
   if (!existsSync(path)) bad(`no vault file at ${path}. Run: paydlux setup`);
   const data = JSON.parse(readFileSync(path, "utf8"));
