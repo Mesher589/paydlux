@@ -80,6 +80,13 @@ export interface DemoConfig {
   token: string;
   /** The gateway that owns the routes, the desk and the mandate. */
   gateway: Gateway;
+  /**
+   * Where a visitor goes to pay for real. Defaults to the public donation door.
+   * The showcase is deliberately free — a stranger should not have to fund a
+   * wallet to see the loop — but "free forever, no door" is how demos end at
+   * zero revenue. One link, one sentence, no popup.
+   */
+  donateHost?: string;
   /** Called whenever a key is enrolled, so the gateway's accepted set follows. */
   onKeys?: (pubs: string[]) => void;
 }
@@ -260,6 +267,13 @@ h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
 pre{margin:10px 0 0;padding:10px 12px;background:#0f1213;border:1px solid var(--line);border-radius:8px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;color:#cfd6d0}
 button{font:inherit;padding:11px 18px;border-radius:9px;border:1px solid var(--gold);background:var(--gold);color:#1a1408;font-weight:600;cursor:pointer;margin:22px 0 0}
 button[disabled]{opacity:.45;cursor:default}
+.door{margin:30px 0 0;border:1px solid var(--line);border-left:3px solid var(--gold);background:#1a1f21;border-radius:10px;padding:18px 20px}
+.door .q{margin:0 0 6px;font-weight:600}
+.door .a{margin:0;color:var(--dim);font-size:15px}
+.door .big{display:inline-block;margin:16px 0 10px;padding:12px 20px;border-radius:9px;background:var(--gold);color:#1a1408;font-weight:700;text-decoration:none}
+.door .big:hover{filter:brightness(1.08)}
+.door .fine{margin:0;color:var(--dim);font-size:13.5px}
+.toplink{margin:0 0 20px;font-size:14px}
 a{color:var(--gold)}
 .foot{margin-top:34px;color:var(--dim);font-size:13.5px;border-top:1px solid var(--line);padding-top:18px}
 code{font:13px ui-monospace,monospace;background:#0f1213;padding:1px 5px;border-radius:4px}
@@ -268,6 +282,7 @@ code{font:13px ui-monospace,monospace;background:#0f1213;padding:1px 5px;border-
 <p class="sub">Paydlux is a payment rail for software agents. A program asks for
 something, the server answers <code>402 Payment Required</code>, a human approves
 on a phone, and the ledger settles it. You are about to drive that loop.</p>
+<p class="toplink"><a href="https://${cfg.donateHost ?? "donate.paydlux.com"}/">or skip to paying for real →</a></p>
 
 <div class="warn">${real
   ? "This is <b>mainnet</b>. A tip is real money and cannot be undone. Every payment still needs the seller's phone."
@@ -292,6 +307,16 @@ on a phone, and the ledger settles it. You are about to drive that loop.</p>
 </div>
 
 <button id="go">Run the loop</button>
+
+<div class="door">
+  <p class="q">That was practice. Nothing you just did cost anything.</p>
+  <p class="a">Your first <em>real</em> agent payment can be a donation to us —
+  same 402, same two signatures, same ledger proof, but the money is real and it
+  buys the thing this project needs: an always-on machine instead of a laptop.</p>
+  <a class="big" href="https://${cfg.donateHost ?? "donate.paydlux.com"}/">Pay a human-approved donation →</a>
+  <p class="fine">It draws on <em>your</em> vault and your phone signs it. We never hold your key,
+  and you can watch our own vault pay out on the public ledger.</p>
+</div>
 
 <p class="foot">Vault <code>${cfg.vault}</code> · token <code>${cfg.token}</code> ·
 network <code>${cfg.network}</code> · <a href="${cfg.explorer}" rel="noopener">open the vault on the explorer</a><br>

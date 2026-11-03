@@ -74,7 +74,7 @@ export function donatePage(cfg: DonatePageConfig): string {
 
  <div class="row">
   <button id="go">Ask my agent to pay</button>
-  <span class="muted">or drive it yourself with curl</span>
+  <span class="muted">never paid with an agent before? <a href="https://demo.paydlux.com/">run the loop free on testnet first</a> — same mechanics, costs nothing</span>
  </div>
  <pre id="cmd">curl -s -X POST https://${DONATE_HOST}/donate \
      -d '{"vault":"G…your vault…"}'

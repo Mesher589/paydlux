@@ -50,6 +50,7 @@
     "typecheck": "tsc --noEmit",
     "app": "tsx stellar/cli.ts",
     "app:mainnet": "tsx stellar/cli.ts setup --mainnet --file paydlux-mainnet.json --token XLM --max 2 --daily 20",
+    "fund:check": "tsx stellar/check-address.ts GARPB3CO3JMMED3ETFRSSZXCH2X7UTXW4FNUP3Z7HDMBKAC2H355W4SA",
     "test:showcase": "tsx stellar/showcase-check.ts",
     "test:native": "tsx stellar/native-check.ts",
     "test:receive": "tsx stellar/receive-check.ts",
