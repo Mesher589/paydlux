@@ -54,6 +54,13 @@ export async function createApprovalChallenge(opts: {
   amount: string;
   tokenCode: string;
   tokenIssuer: string;
+  /**
+   * Set explicitly when the settlement asset is the ledger's own XLM. Without
+   * it the code falls back to "named XLM and has no issuer", which is right for
+   * every caller today but is a name-based guess, and a name is something an
+   * attacker controls.
+   */
+  native?: boolean;
   network: Network;
   horizon: import("@stellar/stellar-sdk").Horizon.Server;
   id: string;
@@ -63,7 +70,13 @@ export async function createApprovalChallenge(opts: {
 }): Promise<ApprovalChallenge> {
   const pass = passphrase(opts.network);
   const acc = await opts.horizon.loadAccount(opts.vaultAddress);
-  const asset = opts.tokenCode === "XLM" ? Asset.native() : new Asset(opts.tokenCode, opts.tokenIssuer);
+  // Do not decide the asset from its NAME. Anyone can issue a token and call it
+  // XLM; if the name alone chose the asset, that token would be built here as
+  // native XLM and the human would sign a different payment than the one the
+  // seller described. The caller states the asset type; the name is only a
+  // fallback for callers that predate the flag.
+  const native = opts.native ?? (opts.tokenCode === "XLM" && !opts.tokenIssuer);
+  const asset = native ? Asset.native() : new Asset(opts.tokenCode, opts.tokenIssuer);
 
   const built = new TransactionBuilder(acc, { fee: "100", networkPassphrase: pass })
     .addOperation(Operation.payment({ destination: opts.payee, asset, amount: opts.amount }))

@@ -26,6 +26,7 @@ import { newPortalKey } from "./desk.ts";
 import { PolicyEngine } from "./policy.ts";
 import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelServes } from "./tunnel";
 import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase";
+import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate";
 
 export const VAULT_FILE_DEFAULT = "paydlux-vault.json";
 
@@ -369,6 +370,36 @@ async function sell() {
     }
   }
 
+  // The donation door: a stranger's agent pays US from THEIR vault. This is
+  // the seller door (stellar/receive.ts) with a page a human can read. It is a
+  // separate listener on a separate hostname because it has a different trust
+  // profile: it holds no key, signs nothing, and can only ever hand out content
+  // the ledger confirms we were paid for.
+  if (flag("donate")) {
+    if (!tls) bad("--donate needs --tls. The order and its memo travel to a stranger's agent; over plain HTTP someone on the path can take them and pay for your order instead of theirs.");
+    const dPort = Number(arg("donate-port") ?? DONATE_PORT);
+    const who = await portHolder(dPort);
+    if (who) bad(`port ${dPort} (donations) is already in use by ${who}.`);
+    const door = startDonate({
+      port: dPort, hostname: DONATE_HOST, payee, network,
+      price: arg("donate-price") ?? price,
+      asset: vault.isNative
+        ? { code: vault.token.getCode() }
+        : { code: vault.token.getCode(), issuer: vault.token.getIssuer() },
+      vault: vault.address,
+    });
+    // startReceive builds the routes and hands back listen(); without this call
+    // the door answers nothing and the tunnel returns 502 with no local error.
+    await door.listen(dPort);
+    log(`donations are listening on 127.0.0.1:${dPort} for https://${DONATE_HOST}`);
+    if (!tunnelServes(DONATE_HOST)) {
+      log(`  the tunnel does not route ${DONATE_HOST} yet. Add to ~/.cloudflared/config.yml:`);
+      log(`    - hostname: ${DONATE_HOST}`);
+      log(`      service: http://127.0.0.1:${dPort}`);
+      log(`  then: cloudflared tunnel route dns ${TUNNEL_NAME} ${DONATE_HOST}`);
+    }
+  }
+
   const deskUrl = tls ? `https://${PUBLIC_HOST}` : `http://127.0.0.1:${deskPort}`;
   if (tls) {
     const live = await tunnelLive();
@@ -385,6 +416,8 @@ async function sell() {
   approvals  ${deskUrl}/?k=${portalKey}
   phone      ${deskUrl}/phone/?k=${portalKey}
 
+${flag("donate") ? `  donations  https://${DONATE_HOST}   (they pay YOU from THEIR vault)
+` : ""}
   paste into your bot:
       import { PaydluxAgent } from "@paydlux/agent";
       const agent = new PaydluxAgent({ agentKey: "${keys.agent}", network: "${network}" });
@@ -503,21 +536,34 @@ async function setup() {
   } else {
     const seed = arg("fund-seed") ?? process.env.PAYDLUX_FUND_SEED;
     if (!seed) {
+      const need = native ? 15 : 8;
       bad(`mainnet needs a wallet to pay the account-creation costs.
 
-  paydlux setup --mainnet --fund-seed S…
+  paydlux setup --mainnet --token ${code} --fund-seed S…
 
-  The wallet only needs a few XLM (about 8 XLM covers everything here, at
-  ~0.17 USDT per XLM). It is used to CREATE two accounts; it cannot touch the
-  vault afterwards, because the vault's own keys are made fresh right now and
-  its master key is switched off in the same transaction that creates it.`);
+  The wallet needs ${need} XLM (at ~0.17 USDT per XLM that is a few dollars). It
+  is used to CREATE two accounts and nothing else: it cannot touch the vault
+  afterwards, because the vault's own keys are made fresh right now and its
+  master key is switched off in the same transaction that creates it.
+
+  The wallet must already EXIST on mainnet. A brand-new Stellar address cannot
+  be paid into — the ledger refuses with op_no_account — so buy XLM on an
+  exchange and withdraw it to a wallet, or send from an existing account.`);
     }
     funder = Keypair.fromSecret(seed);
     const h = new (await import("@stellar/stellar-sdk")).Horizon.Server("https://horizon.stellar.org");
     const acc: any = await h.loadAccount(funder.publicKey()).catch(() => null);
     if (!acc) bad(`the funding wallet ${funder.publicKey()} does not exist on mainnet. Send it some XLM first.`);
     const xlm = acc.balances.find((b: any) => b.asset_type === "native")?.balance ?? "0";
-    if (Number(xlm) < 8) bad(`the funding wallet has ${xlm} XLM. Creating a vault + a payee account needs about 8 XLM.`);
+    // The vault's starting balance is locked partly as ledger reserve, and the
+    // payee account costs 2 more. An XLM vault needs a working balance on top
+    // of its reserve because it SPENDS XLM, so it costs more to open than a
+    // token vault. Say the real number instead of a guess.
+    const need = native ? 15 : 8;
+    if (Number(xlm) < need) bad(`the funding wallet ${funder.publicKey()} has ${xlm} XLM and needs at least ${need}.
+  an XLM vault locks 2.5 XLM of reserve but also has to hold spendable XLM, so it
+  opens with 12; the payee account costs 2 more; fees are under 0.01.
+  Send more XLM to ${funder.publicKey()} and re-run. Nothing was created.`);
     console.log(`funding wallet ${funder.publicKey()} — ${xlm} XLM`);
   }
 

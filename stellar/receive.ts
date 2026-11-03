@@ -221,6 +221,15 @@ export type ReceiveConfig = {
   deliver: (order: Order) => { content: any; receipt: string };
   explorer?: string;
   fetchJson?: FetchJson;
+  /**
+   * Optional human-readable page for `/`. The /donate routes speak JSON to
+   * agents; a person who opens the link in a browser would otherwise see a
+   * 404 and leave. The page interpolates nothing a visitor controls, so it
+   * cannot be a way in.
+   */
+  page?: () => string;
+  /** Served at /donate.js so the page can keep a strict script-src 'self'. */
+  script?: () => string;
 };
 
 /**
@@ -268,11 +277,53 @@ export function startReceive(cfg: ReceiveConfig) {
       return;
     }
 
+    if (p === "/donate.js") {
+      if (!cfg.script) { send(404, { error: "not_found" }); return; }
+      res.writeHead(200, {
+        "content-type": "text/javascript; charset=utf-8",
+        "x-content-type-options": "nosniff", "cache-control": "no-store",
+      });
+      res.end(cfg.script());
+      return;
+    }
+    if (p === "/" || p === "/index.html") {
+      // A browser, not an agent. Served with the same strict headers as the
+      // showcase: no inline script, nothing interpolated from the request.
+      if (!cfg.page) { send(404, { error: "not_found" }); return; }
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "content-security-policy":
+          "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; " +
+          "img-src 'self' data:; connect-src 'self'; base-uri 'none'; " +
+          "form-action 'none'; frame-ancestors 'none'",
+        "x-content-type-options": "nosniff",
+        "referrer-policy": "no-referrer",
+        "cache-control": "no-store",
+      });
+      res.end(cfg.page());
+      return;
+    }
+    if (p === "/donate/terms") { send(200, terms()); return; }
     if (p !== "/donate") { send(404, { error: "not_found" }); return; }
 
     const tx = url.searchParams.get("tx");
+    const asked = url.searchParams.get("order");
+
+    // Status poll: an order id, no tx. This must NOT issue a new order — a
+    // buyer polling for their own order would otherwise mint a fresh unpaid
+    // order every few seconds and never see the payment they already made.
+    if (!tx && asked) {
+      const order = book.get(asked);
+      if (!order) { send(404, { error: "unknown_order", hint: "the order expired; ask for a new one" }); return; }
+      if (order.redeemedTx) { send(200, { paid: true, tx: order.redeemedTx, order: order.id }); return; }
+      // Cheap, honest answer: we have not seen a payment for this order yet.
+      // The real check happens when the buyer supplies the tx hash.
+      send(202, { paid: false, order: order.id, memo: order.memo, reason: "no payment seen for this order yet" });
+      return;
+    }
+
     if (tx) {
-      const id = url.searchParams.get("order");
+      const id = asked;
       const order = id ? book.get(id) : undefined;
       if (!order) { send(400, { error: "unknown_order", hint: "POST /donate first, then pay, then retry with ?tx=" }); return; }
       if (order.redeemedTx) { send(409, { error: "order_already_paid", tx: order.redeemedTx }); return; }
@@ -314,7 +365,11 @@ export function startReceive(cfg: ReceiveConfig) {
     send(402, { error: "payment_required", ...terms(order) }, { "x-payment": JSON.stringify(terms(order)) });
   });
 
-  return { server, book };
+  return {
+    server, book,
+    /** Loopback only: the public path is the named tunnel, never this port. */
+    listen: (port: number) => new Promise<void>((res) => server.listen(port, "127.0.0.1", () => res())),
+  };
 }
 
 async function readBody(req: IncomingMessage): Promise<any> {
