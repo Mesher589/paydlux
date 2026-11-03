@@ -5,8 +5,8 @@ about us.
 
 ## Report a vulnerability
 
-Email **security@paydlux.com**. If you cannot reach that address, use
-**founder@paydlux.com**.
+Email **founder@paydlux.com**. If you cannot reach that address, use
+**support@paydlux.com**. Both land in the same inbox.
 
 Please include:
 
