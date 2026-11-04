@@ -146,3 +146,65 @@ dollar. Posting from the X website or phone app instead costs nothing.
 - "hosted demo" — the demo runs on a laptop, not a server
 - "phone approval" — not built; the approver key is a file on disk
 - any customer count, revenue, or savings figure — we have none
+
+---
+
+## X post — 4 Nov 2026 (escrow)
+
+True as of today and re-verified before writing:
+
+- `npm run test:escrow` → 39 passed, 0 failed, then 28 passed, 0 failed (live testnet, nothing mocked)
+- Mainnet proof, 3 Nov: 0.5 XLM locked by `create_claimable_balance` in tx
+  `d52292adff4299b2376bb98395ec125d608ff9bed504e3e0a3cbd10a02f19463` (memo
+  `ord_scf_demo_1`, claimants = vault `GCJGF6…VWUB` + buyer `GARPB3…W4SA`),
+  released after the timer in tx `55ed3461aecac9b8e93671e0d0e107cc30dbb37ca1aaae092774b95e1b2b977c`.
+  Both read back from Horizon on 4 Nov.
+- `npm view @paydlux/agent version` → 0.1.21
+- `node dist/cli.js --help` prints `--escrow`, `--release SECONDS`, `paydlux escrow`
+
+### Main post (266 chars — fits the free tier)
+
+```
+An escrow with no contract to audit.
+
+Stellar claimable balance: the seller can claim only after the timer, with both human keys. The buyer can refund before it, alone, no permission needed.
+
+Delivery gets proven before release. The rules are the ledger's, not ours.
+```
+
+Image: `brand/deliverables/x-card-5-escrow.png` (1200x675, X's size).
+
+### Alt main post (279 chars)
+
+```
+Escrow for AI agents. No smart contract.
+
+The money sits in a Stellar claimable balance with two claimants:
+
+- the seller's vault claims only after the timer, with both human keys
+- the buyer takes it back any time before it, alone
+
+No contract to audit. No address to get wrong.
+```
+
+### Reply 1 to your own post (246 chars) — the proof
+
+```
+Proven on mainnet, 3 Nov:
+
+0.5 XLM locked in a claimable balance the vault could not claim early, then released after the timer with both human keys.
+
+stellar.expert/xlm/transaction/d52292adff4299b2376bb98395ec125d608ff9bed504e3e0a3cbd10a02f19463
+```
+
+### Reply 2 (217 chars) — the command
+
+```
+It's in the published CLI:
+
+paydlux sell --escrow --price 3.5 --release 3600
+paydlux escrow              # what is locked, when it releases
+paydlux escrow --refund     # the buyer's way out
+
+npm install @paydlux/agent
+```

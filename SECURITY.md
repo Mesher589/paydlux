@@ -24,12 +24,14 @@ This matters, because a finding against one is not a finding against the other.
 
 | Component | State |
 |---|---|
-| `stellar/` — SDK, gateway, vault, approval desk | working prototype, runs on Stellar **testnet** only |
+| `stellar/` — SDK, gateway, vault, approval desk | working prototype; mainnet for the vault and escrow proofs, live demo on **testnet** |
 | `contracts/` — Solidity `AgentVault.sol` | earlier EVM prototype, **not shipped**, kept for reference |
 | Hosted service | none. There is no Paydlux server holding anyone's funds |
 
-There is **no audit** of any of this. There is **no real money** in the system.
-Anyone using it today is using test tokens.
+There is **no audit** of any of this. The vault and escrow paths have been run on
+**mainnet** with the project's own small amounts (proof transactions, listed in
+`docs/scf-traction-update.md`); no third party's funds are held, and there is no
+hosted service taking custody of anything.
 
 ## Scope we care about most
 
@@ -137,6 +139,37 @@ Still open, and worth reporting if you find it worse than described:
   cookie so subsequent requests do not need it in the URL. It is still in the
   history of the device that opened the link. Rotating it per session limits the
   damage; it still cannot spend anything by itself.
+
+## The rules page edits the ceilings that gate money (`/rules`)
+
+The desk now has a page where the owner edits their own spending rules: per-payment
+ceiling, daily budget, seller allow/deny list, and named transaction categories with
+their own ceilings. That is a form which changes what the human is *asked* to approve,
+so it is treated as a money route, not a settings page.
+
+Three properties hold it, all asserted in `stellar/policy-check.ts`
+(`npm run test:policy`):
+
+- **Key-gated.** `/rules` requires the same unguessable portal key as `/approve`.
+  Without it: 403, no information about whether the route exists.
+- **Same-origin-gated.** The same cross-origin POST hole that once let another page
+  approve a payment would also let another page raise your daily budget. `/rules`
+  shares `/approve`'s `Origin` + `Sec-Fetch-Site` gate, so a form posted from another
+  site is refused before the fields are read.
+- **A category can only tighten the mandate, never widen it.** Category ceilings are
+  checked *after* the base ceilings, so a category limit above the base limit is inert
+  by construction. The per-payment ceiling that actually binds is the one baked into
+  the mandate's transaction hash; raising it in the form changes a number this file
+  counts, and the ledger still refuses above the mandate amount.
+
+Input handling: category names are reduced to `[a-z0-9_-]` before storage, seller
+lists accept only `G…` account ids, and a blank or negative number falls back to the
+**previous** value rather than a default — so a malformed edit is a no-op instead of a
+silent loosening. Deleting a category also deletes its wallet mappings, so no wallet
+keeps an invisible ceiling.
+
+What this does *not* do: the rules never approve anything. They decide what the human
+is offered. Every payment still needs the human's signature and the vault's 2-of-2.
 
 ## Another page could approve a payment (`<0.1.7`)
 

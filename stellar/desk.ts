@@ -18,8 +18,9 @@ import { Keypair, Horizon } from "@stellar/stellar-sdk";
 import { TransactionBuilder } from "@stellar/stellar-sdk";
 import { passphrase } from "./vault.ts";
 import type { StellarVault } from "./vault.ts";
-import type { PolicyEngine } from "./policy.ts";
-import { portalPage } from "./portal.ts";
+import type { PolicyEngine, Policy } from "./policy.ts";
+import { DEFAULT_POLICY, normalizeCategory } from "./policy.ts";
+import { portalPage, rulesPage } from "./portal.ts";
 import {
   createApprovalChallenge, submitApproved, challengeQrPayload,
   type ApprovalChallenge,
@@ -181,6 +182,33 @@ function cookieOf(req: IncomingMessage, name: string): string | null {
   return null;
 }
 
+/**
+ * Form-field readers for /rules. A form is untrusted input arriving on a route
+ * that gates money, so each reader narrows to one type instead of trusting the
+ * field name. Empty means "not supplied", which lets a blank input fall back to
+ * the engine's default rather than becoming a zero.
+ */
+function numField(v: string | null): number | undefined {
+  const s = String(v ?? "").trim();
+  if (!s) return undefined;
+  const n = Number(s);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/** One account id per line. Anything that is not G…56 is dropped, not warned. */
+function linesField(v: string | null): string[] {
+  return String(v ?? "").split(/[\s,]+/).map((s) => s.trim().toUpperCase())
+    .filter((s) => /^G[A-Z2-7]{55}$/.test(s));
+}
+
+/** A Stellar account id, and nothing else. Same shape the policy engine accepts. */
+const isAccountId = (s: string) => /^G[A-Z2-7]{55}$/.test(s);
+
+/** A comma-separated list of ids carried by a hidden field. */
+function listField(v: string | null): string[] {
+  return String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
 function same(a: string, b: string) {
   const x = Buffer.from(a), y = Buffer.from(b);
   return x.length === y.length && timingSafeEqual(x, y);
@@ -279,11 +307,23 @@ export type DeskConfig = {
    * ceiling can actually hold.
    */
   policy?: PolicyEngine;
+  /**
+   * Called when the human edits the spending rules from the portal. The CLI
+   * wires this to the config file, so a rule set at the desk survives the next
+   * restart instead of resetting to the command-line defaults.
+   *
+   * A callback rather than a path: the desk must not know where secrets live.
+   * The config file also holds key material, so the writer stays with the code
+   * that already handles it (0600, same serialisation).
+   */
+  onPolicyChange?: (policy: Policy) => void;
 };
 
 export class ApprovalDesk {
   private records = new Map<string, DeskRecord>();
   private seq = 0;
+  /** when /rules last saved, so the page can say "saved" without a query flag */
+  private rulesSavedAt = 0;
   private server?: ReturnType<typeof createServer>;
   cfg: DeskConfig;
 
@@ -429,14 +469,21 @@ export class ApprovalDesk {
     // `pending` deliberately does NOT count: that is a request nobody has
     // approved, and counting the whole queue would refuse the first approval
     // just because more requests exist than the budget can cover.
-    const committed = this.list().reduce((sum, r) =>
-      (r.id !== rec.id && (r.status === "awaiting_phone" || r.status === "approved"))
-        ? sum + Number(r.price) : sum, 0);
+    const waiting = this.list().filter((r) =>
+      r.id !== rec.id && (r.status === "awaiting_phone" || r.status === "approved"));
+    const committed = waiting.reduce((sum, r) => sum + Number(r.price), 0);
+    // The same promise, counted inside the payee's category. A category budget
+    // that ignored the queue would let the human approve five payments and have
+    // the fifth fail at submission. This desk pays one payee, so every waiting
+    // record belongs to that payee's bucket — no per-record lookup needed.
+    const category = policy.categoryOf(this.cfg.payee);
+    const committedInCategory = category ? committed : undefined;
     const verdict = policy.check({
       amount: Number(rec.price),
       payee: this.cfg.payee,
       ttl: this.cfg.decideWithinSeconds,
       committed,
+      committedInCategory,
     });
     if (verdict.ok) return null;
     rec.status = "failed";
@@ -454,6 +501,129 @@ export class ApprovalDesk {
       at: Date.now(), amount: Number(rec.price), payee: this.cfg.payee,
       uri: rec.uri, mandateHash: tx,
     });
+  }
+
+  /** The rules as they stand, for the /rules page. */
+  policyView(): Policy {
+    return this.cfg.policy?.policy ?? { ...DEFAULT_POLICY };
+  }
+
+  /** What today's counters read, per category, for the /rules page. */
+  private spentView(): { total: number; byCategory: Record<string, number> } {
+    const p = this.cfg.policy;
+    if (!p) return { total: 0, byCategory: {} };
+    const byCategory: Record<string, number> = {};
+    for (const name of Object.keys(p.policy.categories ?? {})) byCategory[name] = p.spentInCategory(name);
+    return { total: p.spentToday(), byCategory };
+  }
+
+  /**
+   * The cross-origin gate used by every route that changes money or the rules
+   * that gate it. A cross-origin fetch POST is a CORS *simple request*: no
+   * preflight, so the attacker's page never sees the reply but the action still
+   * happens. Browsers always send Origin on POST and Sec-Fetch-Site on every
+   * request, so checking both closes that path while leaving local automation
+   * (curl, tests, the phone app on its own origin) alone.
+   *
+   * Returns a reason string when the request must be refused, null when it may
+   * proceed.
+   */
+  private crossOriginGate(req: IncomingMessage): string | null {
+    const origin = String(req.headers.origin ?? "");
+    if (origin) {
+      const here = String(req.headers.host ?? "").toLowerCase();
+      let oh: string;
+      try { oh = new URL(origin).host.toLowerCase(); } catch { oh = ""; }
+      if (oh !== here) return `this desk only accepts actions from itself, not from ${origin}`;
+    }
+    const site = String(req.headers["sec-fetch-site"] ?? "").toLowerCase();
+    if (site && site !== "same-origin" && site !== "none") {
+      return `this desk only accepts same-site actions (got ${site})`;
+    }
+    return null;
+  }
+
+  /**
+   * Apply an edit from the /rules form.
+   *
+   * The form carries the whole rule set, so this rebuilds rather than patches:
+   * what you see on the page is what gets saved, and a stale field cannot
+   * survive an edit. Names and numbers are validated inside PolicyEngine.update
+   * — this function only decides which fields the form is allowed to touch.
+   *
+   * Deliberately absent: maxMandateTtl and maxLiveMandates. Those are ledger
+   * constraints (sequence binding), not owner preferences, and a form field for
+   * them would be an invitation to configure a mandate the chain will refuse.
+   */
+  private applyRules(action: string, form: URLSearchParams): Policy {
+    const engine = this.cfg.policy;
+    if (!engine) return { ...DEFAULT_POLICY };
+    const current = engine.policy;
+
+    const dropped = new Set(listField(form.get("delcat")));
+    // A category whose name was edited, old -> new. The page renders the name as
+    // a hidden field, so this only fires for a hand-crafted POST; keeping the
+    // mapping rather than dropping it means a rename never silently removes a
+    // wallet's ceiling.
+    const renamed = new Map<string, string>();
+    const next: Partial<Policy> = {};
+    const maxPer = numField(form.get("maxPerPayment"));
+    const daily = numField(form.get("dailyBudget"));
+    if (maxPer !== undefined) next.maxPerPayment = maxPer;
+    if (daily !== undefined) next.dailyBudget = daily;
+    next.allowlist = linesField(form.get("allowlist"));
+    next.denylist = linesField(form.get("denylist"));
+
+    // Categories: rebuilt from the rows the page shows, minus the ones the
+    // human removed, plus the one they just typed.
+    const categories: Record<string, { maxPerPayment?: number; dailyBudget?: number }> = {};
+    for (const [key, value] of form) {
+      const m = /^cat_(.{1,32})_name$/.exec(key);
+      if (!m) continue;
+      const was = m[1];
+      const name = normalizeCategory(value || was);
+      if (!name || dropped.has(was) || dropped.has(name)) continue;
+      if (name !== was) renamed.set(was, name);
+      categories[name] = {
+        maxPerPayment: numField(form.get(`cat_${was}_max`)),
+        dailyBudget: numField(form.get(`cat_${was}_daily`)),
+      };
+    }
+    // Both "add" boxes are processed whenever they are filled, not only when
+    // their own button was pressed. The alternative is a form where typing a
+    // wallet and pressing the wrong button silently discards what was typed —
+    // and a rule that vanishes without an error is worse than a strict one.
+    const addCat = normalizeCategory(form.get("newcat"));
+    if (addCat && !dropped.has(addCat)) {
+      categories[addCat] = {
+        maxPerPayment: numField(form.get("newcat_max")),
+        dailyBudget: numField(form.get("newcat_daily")),
+      };
+    }
+    next.categories = categories;
+
+    // Wallet → category map: keep what is there, drop what was removed, add the
+    // new one. Rebuilt from the engine rather than the form, because a form
+    // field for the whole map would let a POST invent mappings for accounts
+    // nobody typed. A renamed bucket carries its wallets with it, so a rename
+    // can never quietly drop a ceiling.
+    const droppedMap = new Set(listField(form.get("delmap")));
+    const payeeCategory: Record<string, string> = {};
+    for (const [payee, name] of Object.entries(current.payeeCategory ?? {})) {
+      if (droppedMap.has(payee)) continue;
+      payeeCategory[payee] = renamed.get(name) ?? name;
+    }
+    const addWallet = String(form.get("newpayee") ?? "").trim().toUpperCase();
+    const addCatForWallet = normalizeCategory(form.get("newpayee_cat"));
+    if (isAccountId(addWallet) && addCatForWallet && categories[addCatForWallet]) {
+      payeeCategory[addWallet] = addCatForWallet;
+    }
+    next.payeeCategory = payeeCategory;
+
+    const policy = engine.update(next);
+    console.log(`[desk] spending rules updated (${action}): max ${policy.maxPerPayment}, daily ${policy.dailyBudget}, `
+      + `${Object.keys(policy.categories ?? {}).length} categories, ${Object.keys(policy.payeeCategory ?? {}).length} wallets mapped`);
+    return policy;
   }
 
   async approve(id: string) {
@@ -877,6 +1047,43 @@ export class ApprovalDesk {
         }
         if (url.pathname === "/list") return send(200, this.list());
 
+        // The spending rules. Read-only view of the mandate the desk enforces,
+        // plus the form that edits it. Key-gated like everything else: these
+        // numbers decide what money leaves the vault, so an unauthenticated
+        // /rules would be an open "raise the budget" endpoint.
+        if (url.pathname === "/rules" && req.method === "GET") {
+          res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+          res.end(rulesPage(this.policyView(), this.spentView(), this.cfg.vault.address,
+            this.cfg.vault.network, qs, Date.now() - this.rulesSavedAt < 15_000));
+          return;
+        }
+        if (url.pathname === "/rules.js") {
+          const body = readPortalFile("rules.js");
+          if (body === null) return notFound(res);
+          res.writeHead(200, {
+            "content-type": "text/javascript; charset=utf-8",
+            "x-content-type-options": "nosniff",
+          });
+          res.end(body);
+          return;
+        }
+        if (url.pathname === "/rules" && req.method === "POST") {
+          // Editing the rules moves money indirectly, so it gets the same
+          // cross-origin gate as /approve: a page on another site must not be
+          // able to POST a form that raises your daily budget.
+          const gate = this.crossOriginGate(req);
+          if (gate) return send(403, { error: "cross_origin", reason: gate });
+          const body = await readBody(req);
+          const form = new URLSearchParams(body);
+          const action = form.get("action") ?? "save";
+          const policy = this.applyRules(action, form);
+          this.rulesSavedAt = Date.now();
+          this.cfg.onPolicyChange?.(policy);
+          res.writeHead(303, { location: "/rules" + (this.cfg.portalKey ? `?k=${encodeURIComponent(this.cfg.portalKey)}` : "") });
+          res.end();
+          return;
+        }
+
         // The approver app's list view. Key-gated like everything else, and it
         // carries no paid content and no challenge XDR.
         if (url.pathname === "/queue") return send(200, this.queue());
@@ -939,26 +1146,9 @@ export class ApprovalDesk {
         const m = url.pathname.match(/^\/(approve|deny|signed)\/([\w-]+)$/);
         if (m && req.method === "POST") {
           // These routes move money, so they must not be reachable from another
-          // page. A cross-origin fetch POST is a CORS *simple request*: no
-          // preflight, so the attacker's page never sees the reply but the
-          // approval still happens. Verified end to end: a page on another port
-          // settled a parked payment and paid the seller. Browsers always send
-          // Origin on POST and Sec-Fetch-Site on every request, so checking both
-          // closes that path while leaving local automation (curl, tests, the
-          // phone app on its own origin) alone.
-          const origin = String(req.headers.origin ?? "");
-          if (origin) {
-            const here = String(req.headers.host ?? "").toLowerCase();
-            let oh: string;
-            try { oh = new URL(origin).host.toLowerCase(); } catch { oh = ""; }
-            if (oh !== here) {
-              return send(403, { error: "cross_origin", reason: `this desk only accepts actions from itself, not from ${origin}` });
-            }
-          }
-          const site = String(req.headers["sec-fetch-site"] ?? "").toLowerCase();
-          if (site && site !== "same-origin" && site !== "none") {
-            return send(403, { error: "cross_origin", reason: `this desk only accepts same-site actions (got ${site})` });
-          }
+          // page — same gate as /rules, see crossOriginGate.
+          const gate = this.crossOriginGate(req);
+          if (gate) return send(403, { error: "cross_origin", reason: gate });
           if (m[1] === "signed") {
             const body = await readBody(req);
             const { signedXdr } = JSON.parse(body || "{}");

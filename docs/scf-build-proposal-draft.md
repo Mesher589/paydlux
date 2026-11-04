@@ -98,6 +98,14 @@ Existing (all MIT, no smart contracts):
 - **Approver** — PWA (WebCrypto Ed25519, non-extractable key, seed never leaves
   device) + native iOS app with its own XDR decoder (32 byte-exactness checks vs
   SDK); rejects path payments, merges, signer changes, multi-op txs.
+- **Spending policy + rules editor** — per-payment ceiling, daily budget, seller
+  allow/deny list, and **named transaction categories** with their own ceilings,
+  edited by the owner in a browser at `/rules` and persisted to the vault config.
+  A category can only tighten the mandate, never widen it (42 checks in
+  `stellar/policy-check.ts` prove the asymmetry, the queue accounting, and that a
+  cross-origin POST cannot raise a budget). Shipped 2026-11-04 in response to
+  public demand on X (@Mrchrisxyz: "customizable approval policy … spending
+  limits, approved wallet addresses, transaction categories, daily budgets").
 - **CLI** — `paydlux setup|sell|status|approver`; one command to a funded,
   trustlined vault.
 

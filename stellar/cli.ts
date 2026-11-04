@@ -222,7 +222,26 @@ async function sell() {
   // desk is even built.
   const maxPer = Number(arg("max") ?? data.policy?.maxPerPayment ?? 2);
   const daily = Number(arg("daily") ?? data.policy?.dailyBudget ?? 10);
-  const policy = new PolicyEngine({ maxPerPayment: maxPer, dailyBudget: daily });
+  // Categories and the wallet map come from the config file only: they are set
+  // at the desk (/rules), not from the command line. A flag for them would be a
+  // second, easier way to say the same thing, and the page would drift from it.
+  //
+  // The same is true of the two ceilings once an owner edits them at the desk:
+  // the saved file wins over the flags, because the app scripts pass --max and
+  // --daily on every start and would otherwise silently undo whatever was set in
+  // the browser. The line printed below is what keeps that from being a
+  // surprise — a rule that quietly reverts is worse than no rule at all.
+  const saved = data.policy?.savedByOwner === true;
+  const maxPerFinal = saved ? Number(data.policy.maxPerPayment ?? maxPer) : maxPer;
+  const dailyFinal = saved ? Number(data.policy.dailyBudget ?? daily) : daily;
+  if (saved && (maxPerFinal !== maxPer || dailyFinal !== daily)) {
+    log(`using the rules you saved at the desk (max ${maxPerFinal}, daily ${dailyFinal}) instead of the command line (${maxPer}/${daily}).\n  to change them: open the approvals link and press "spending rules".`);
+  }
+  const policy = new PolicyEngine({
+    maxPerPayment: maxPerFinal, dailyBudget: dailyFinal,
+    allowlist: data.policy?.allowlist, denylist: data.policy?.denylist,
+    categories: data.policy?.categories, payeeCategory: data.policy?.payeeCategory,
+  });
 
   // A ceiling below the price blocks every payment, and the failure looks like
   // a bug in the desk: the buyer waits, the human never sees an approvable
@@ -234,15 +253,15 @@ async function sell() {
   // takes money IN from the buyer, so the ceiling does not apply to it — and
   // applying it would refuse a perfectly good escrow price for no reason.
   if (mode === "escrow") {
-    if (priceNum > maxPer) {
-      log(`note: --escrow price ${price} is above --max ${maxPer}. That is fine here — escrow money comes FROM the buyer, so your spending mandate never touches it.`);
+    if (priceNum > maxPerFinal) {
+      log(`note: --escrow price ${price} is above --max ${maxPerFinal}. That is fine here — escrow money comes FROM the buyer, so your spending mandate never touches it.`);
     }
   } else {
-    if (priceNum > maxPer) {
-      bad(`--price ${price} is above --max ${maxPer}, so every payment would be refused by your own mandate.\n  raise --max to at least ${price} (for example --max ${price}) or lower --price.`);
+    if (priceNum > maxPerFinal) {
+      bad(`--price ${price} is above --max ${maxPerFinal}, so every payment would be refused by your own mandate.\n  raise --max to at least ${price} (for example --max ${price}) or lower --price.`);
     }
-    if (priceNum > daily) {
-      bad(`--price ${price} is above --daily ${daily}: one payment would spend the whole day's budget and the second would be refused.\n  set --daily to at least ${price}.`);
+    if (priceNum > dailyFinal) {
+      bad(`--price ${price} is above --daily ${dailyFinal}: one payment would spend the whole day's budget and the second would be refused.\n  set --daily to at least ${price}.`);
     }
   }
 
@@ -272,21 +291,33 @@ async function sell() {
       + `the daily budget of ${daily} cannot be enforced without it, so nothing was started. `
       + `Check the network and try again.`);
   }
-  policy.seedFromLedger(alreadyPaid);
+  policy.seedFromLedger(alreadyPaid, policy.categoryOf(payee));
   if (alreadyPaid > 0) {
-    log(`ledger says ${alreadyPaid.toFixed(2)} of the ${daily} daily budget is already spent today`);
-    if (alreadyPaid >= daily) {
-      bad(`today's budget is already gone: ${alreadyPaid.toFixed(2)} paid, ${daily} allowed.\n  `
+    log(`ledger says ${alreadyPaid.toFixed(2)} of the ${dailyFinal} daily budget is already spent today`);
+    if (alreadyPaid >= dailyFinal) {
+      bad(`today's budget is already gone: ${alreadyPaid.toFixed(2)} paid, ${dailyFinal} allowed.\n  `
         + `the mandate would refuse every payment. Raise --daily or wait for the UTC day to roll over.`);
     }
+  }
+
+  // Say out loud what the rules are, including the categories, so the numbers
+  // an owner set in a browser are visible to whoever starts the seller. A rule
+  // nobody can see is a rule nobody trusts.
+  const catNames = Object.keys(policy.policy.categories ?? {});
+  if (catNames.length) {
+    const mapped = Object.entries(policy.policy.payeeCategory ?? {});
+    log(`spending categories: ${catNames.map((c) => {
+      const r = policy.policy.categories![c];
+      return `${c} (${r.maxPerPayment ?? policy.policy.maxPerPayment}/payment, ${r.dailyBudget ?? dailyFinal}/day)`;
+    }).join(", ")}${mapped.length ? ` · ${mapped.length} wallet(s) mapped` : ""}`);
   }
 
   if (network === "public") {
     console.log(`
   MAINNET — real money.
     token            ${data.token.code}
-    max per payment  ${maxPer}
-    daily budget     ${daily}
+    max per payment  ${maxPerFinal}
+    daily budget     ${dailyFinal}
     vault            ${vault.address}
     balance          ${await vault.balance()} ${data.token.code}
 `);
@@ -346,6 +377,25 @@ async function sell() {
     ],
     // The banner prints these numbers. This line is what makes them true.
     policy,
+    // Rules edited at the desk must survive the next restart, or the mandate in
+    // the banner is a promise that lasts until ctrl-c. Written back to the same
+    // config file, with the same 0600 as everywhere else in this file, because
+    // it also holds key material.
+    onPolicyChange: (p) => {
+      data.policy = {
+        ...(data.policy ?? {}),
+        // The marker that says "a human set these in a browser". Without it the
+        // app scripts' --max/--daily flags win on every restart and the edit is
+        // lost by morning.
+        savedByOwner: true,
+        maxPerPayment: p.maxPerPayment, dailyBudget: p.dailyBudget,
+        allowlist: p.allowlist ?? [], denylist: p.denylist ?? [],
+        categories: p.categories ?? {}, payeeCategory: p.payeeCategory ?? {},
+      };
+      writeFileSync(path, JSON.stringify(data, null, 2));
+      chmodSync(path, 0o600);
+      log(`rules saved to ${path}`);
+    },
   });
 
   let tunnel: ReturnType<typeof runTunnel> | null = null;
