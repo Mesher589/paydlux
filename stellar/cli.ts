@@ -15,7 +15,7 @@
 // into their bot.
 import { createInterface } from "node:readline/promises";
 import { createServer } from "node:http";
-import { execSync } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
@@ -512,6 +512,200 @@ ${flag("donate") ? `  donations  https://${DONATE_HOST}   (they pay YOU from THE
   };
   process.on("SIGINT", bye);
   process.on("SIGTERM", bye);
+}
+
+/**
+ * paydlux demo — the funder meeting, as one command.
+ *
+ * `sell` is the right command for a seller: it takes flags, and it refuses to
+ * start when anything is off (port taken, budget already spent). That is correct
+ * for a seller and fatal in front of an investor, who is watching a terminal go
+ * red thirty seconds before the money shot.
+ *
+ * This is a preset, not a second implementation. It fixes the two things that
+ * actually break a live demo, then runs the SAME sell() — same mandate, same
+ * desk, same ledger, same phone signature:
+ *
+ *   1. A port already held by Paydlux is not an error. It means the demo is
+ *      already running, so print the links and open the tabs instead of dying.
+ *   2. A daily budget already spent today IS fatal (the mandate would refuse
+ *      every payment), so raise it, save it to the vault file, and say so out
+ *      loud. Raising the *daily* counter is safe: the per-payment ceiling is
+ *      still pinned into the signed transaction hash.
+ *
+ * It then opens the two tabs and prints the runbook, so nobody has to remember
+ * a URL or a portal key while someone is watching.
+ */
+async function demo() {
+  const path = resolve(process.cwd(), arg("file") ?? VAULT_FILE_DEFAULT);
+  if (!existsSync(path)) bad(`no vault here. Run:  paydlux setup`);
+  const data = JSON.parse(readFileSync(path, "utf8"));
+  const network = (data.network ?? "testnet") as Network;
+  const price = arg("price") ?? data.policy?.defaultPrice ?? "1";
+  const ports = [
+    Number(arg("port") ?? 4021), Number(arg("desk") ?? 4022),
+    Number(arg("demo-port") ?? 4023),
+  ];
+  // The donation door (4024) is deliberately NOT in this list and NOT started
+  // by the demo. It runs against the MAINNET vault, where real people send real
+  // USDC. A demo preset that restarted it would point a public money address at
+  // a testnet vault, and a donation to a testnet account is gone forever.
+
+  // 1. Something already on those ports? Two different things happened in real
+  // meetings and neither may end in a red error:
+  //   a) the demo IS up and answering — reuse it, just open the tabs;
+  //   b) a leftover Paydlux (a donation door from this morning, a seller that
+  //      lost its tunnel) is squatting on one port — the public URLs then 530
+  //      and `sell` refuses to start. Stop the leftover, say exactly what was
+  //      stopped, and start a clean demo.
+  const live = await surfacesLive();
+  if (live.desk && live.demo && !flag("restart")) {
+    const key = data.desk?.portalKey as string | undefined;
+    log("the demo is already running and answering — nothing to start");
+    openUrl(`https://${DEMO_HOST}`);
+    if (key) openUrl(`https://${PUBLIC_HOST}/phone/?k=${key}`);
+    demoCard(`https://${PUBLIC_HOST}`, key, data);
+    return;
+  }
+  await clearDemoPorts(ports);
+
+  // 2. Budget headroom. `sell` refuses to start when the ledger says today's
+  // budget is gone, and the demo would then die at the worst possible moment.
+  // Seed the counter from the ledger here and lift the ceiling if needed.
+  // NB: `payee` in the vault file is an object ({address, seed}) when `setup`
+  // generated one, and a bare address string when the seller passed --payee.
+  // Reading only the string form silently skips this check — which is exactly
+  // how the demo died once, on "1.00 of the 50 daily budget is already spent".
+  const payeeAddr = typeof data.payee === "string" ? data.payee : data.payee?.address;
+  const daily = Number(data.policy?.dailyBudget ?? 50);
+  if (typeof payeeAddr === "string" && /^G[A-Z2-7]{55}$/.test(payeeAddr)) {
+    try {
+      const vault = await vaultHandle(data, network);
+      const spent = Number(await vault.paidToday(payeeAddr));
+      // Enough headroom for ten more demo payments, whatever the price is.
+      const want = spent + Math.max(10, Math.ceil(Number(price) * 10));
+      if (daily < want) {
+        data.policy = { ...(data.policy ?? {}), savedByOwner: true, dailyBudget: Math.ceil(want) };
+        writeFileSync(path, JSON.stringify(data, null, 2));
+        chmodSync(path, 0o600);
+        log(`today's spend is ${spent.toFixed(2)} of ${daily}; raised the daily budget to ${data.policy.dailyBudget} so the demo has room`);
+        log(`  per-payment ceiling unchanged (${data.policy.maxPerPayment ?? "?"}) — that one is pinned into the signed transaction hash`);
+      }
+    } catch (e: any) {
+      // Do not block the demo on this check. If the ledger really is
+      // unreachable, sell() will say so plainly before it starts anything.
+      log(`could not pre-check today's spend (${e?.message ?? e}) — starting anyway`);
+    }
+  }
+
+  // 3. Run the real thing. sell() reads its options from process.argv, so the
+  // preset is expressed there rather than by duplicating the seller's startup.
+  const extra = ["sell", "--split", "--tls", "--showcase",
+    "--price", price, "--route", "/market/data", "--file", path];
+  for (const f of ["max", "daily", "port", "desk", "demo-port", "donate-port"]) {
+    const v = arg(f);
+    if (v !== undefined) extra.push(`--${f}`, v);
+  }
+  process.argv = [process.argv[0], process.argv[1], ...extra];
+
+  // Open the tabs as soon as the desk actually answers — not before, because a
+  // tab that loads an error page is what a funder remembers. Scheduled rather
+  // than awaited: sell() never returns, it stays up serving payments.
+  const key = data.desk?.portalKey as string | undefined;
+  demoCard(`https://${PUBLIC_HOST}`, key, data);
+  if (!flag("no-open")) {
+    setTimeout(async () => {
+      if (await tunnelLive()) {
+        openUrl(`https://${DEMO_HOST}`);
+        if (key) openUrl(`https://${PUBLIC_HOST}/phone/?k=${key}`);
+      }
+    }, 1000);
+  }
+  await sell();
+}
+
+/** Are the public URLs actually answering? A port can be held by a process
+ *  whose tunnel died, which is worse than no process at all: the browser gets
+ *  a Cloudflare 530 and the founder has no idea why. */
+async function surfacesLive() {
+  const get = async (url: string) => {
+    try { const r = await fetch(url, { signal: AbortSignal.timeout(4000) }); return r.status < 500; }
+    catch { return false; }
+  };
+  const [desk, demo] = await Promise.all([
+    get(`https://${PUBLIC_HOST}/healthz`), get(`https://${DEMO_HOST}/`),
+  ]);
+  return { desk, demo };
+}
+
+/**
+ * Free the demo's ports when a stale Paydlux is squatting on one.
+ *
+ * Only Paydlux processes are touched, and only after saying which one and why.
+ * Anything else on the port is left alone and reported, because killing a
+ * stranger's server to make a demo fit is not our call to make.
+ */
+async function clearDemoPorts(ports: number[]) {
+  for (const port of ports) {
+    const who = await portHolder(port);
+    if (!who) continue;
+    if (!/paydlux|cli|tsx|node/i.test(who)) {
+      bad(`port ${port} is held by ${who}, which is not Paydlux.\n  free it, or move the demo: paydlux demo --desk ${port + 100}`);
+    }
+    const pid = Number((who.match(/pid (\d+)/) ?? [])[1]);
+    if (!pid) { log(`port ${port} is held by ${who}; stopping it`); continue; }
+    try {
+      const cmd = execSync(`ps -o command= -p ${pid} 2>/dev/null`, { encoding: "utf8" }).trim();
+      log(`stopping the stale Paydlux on port ${port} (pid ${pid}): ${cmd.slice(0, 90)}`);
+      process.kill(pid, "SIGTERM");
+    } catch { /* already gone */ }
+    // Wait for the port to actually free. SIGTERM to a seller runs its bye()
+    // handler, which takes a moment to close listeners and the tunnel.
+    for (let i = 0; i < 20; i++) {
+      if (!(await portHolder(port))) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    const still = await portHolder(port);
+    if (still) {
+      try { process.kill(pid, "SIGKILL"); } catch { /* gone */ }
+      log(`port ${port} needed a hard stop`);
+    }
+  }
+}
+
+/** The runbook, printed where the founder is already looking. */
+function demoCard(host: string, key: string | undefined, data: any) {
+  console.log(`
+  ┌── Paydlux demo · the 5-minute script ─────────────────────────────
+  │ 1  https://paydlux.com        "an agent buys from a website"
+  │ 2  https://${DEMO_HOST}      press RUN THE LOOP → 402 → paid
+  │ 3  your iPhone                hold 1.2s. the key never left it
+  │ 4  back on tab 2              step 5 prints the ledger tx hash
+  │ 5  ${host}/rules${key ? `?k=${key}` : ""}   spending limits, categories
+  └───────────────────────────────────────────────────────────────────
+  token ${data.token?.code ?? "?"} · ${data.network ?? "testnet"} · nothing here costs real money
+`);
+}
+
+/** Open a URL in the default browser. Best-effort: a demo survives it failing. */
+function openUrl(url: string) {
+  try {
+    const tool = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
+    const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+    const p = spawn(tool, args, { stdio: "ignore", detached: true });
+    p.on("error", () => log(`open this yourself: ${url}`));
+    p.unref();
+  } catch { log(`open this yourself: ${url}`); }
+}
+
+/** The vault handle `sell` uses, shared so the demo checks the same numbers. */
+async function vaultHandle(data: any, network: Network) {
+  const keys = data.keys ?? {};
+  return StellarVault.load(
+    data.vault, data.token.code, data.token.issuer,
+    { principal: pub(keys.principal), approver: keys.approver ? pub(keys.approver) : undefined, agent: pub(keys.agent) } as any,
+    network,
+  );
 }
 
 /** XLM the vault must hold to exist, versus what it actually has. */
@@ -1124,6 +1318,12 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
       in a claimable balance you cannot touch until --release seconds have
       passed, and the buyer can take it back any time before then. You get paid
       by proving delivery before the timer, not by waiting for it.
+  paydlux demo  [--price 1] [--file ./paydlux-vault.json]
+      the funder meeting as one command. Same seller, same desk, same phone
+      signature — but it refuses to fail in front of an audience: if the demo is
+      already running it opens the tabs instead of dying on a taken port, and if
+      today's daily budget is already spent it raises that budget (the
+      per-payment ceiling is untouched) rather than refusing to start.
   paydlux escrow [--release ORD | --refund ESCROW_ID]
       list what is locked for your vault, release one order, or take a buyer's
       money back. Release needs both human keys; on a --split vault it prints
@@ -1285,6 +1485,7 @@ export async function main() {
   if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") { console.log(HELP); return; }
   if (cmd === "setup") return setup();
   if (cmd === "sell") return sell();
+  if (cmd === "demo") return demo();
   if (cmd === "donate") return donate();
   if (cmd === "status") return status();
   if (cmd === "approver") return approver();

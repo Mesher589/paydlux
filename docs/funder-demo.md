@@ -5,16 +5,21 @@ Run this yourself. No engineer, no terminal on stage, no agent needed.
 ## The night before (once)
 
 1. **Charge the iPhone** and open the Paydlux app once so the approver key is loaded.
-2. **Put the demo desk on your laptop** and leave it running:
-   ```
-   npm run app:testnet:sell
-   ```
-   It prints `desk is live at https://desk.paydlux.com`. That is the whole setup.
-3. **Open two tabs** on the laptop and leave them there:
-   - `https://demo.paydlux.com` ← the story page you show the funder
-   - `https://desk.paydlux.com/phone/?k=YOUR_KEY` ← the approver screen (the key is in
-     the desk's startup log; it is the same link the app uses)
-4. **Test the loop once** (below). If it settles, you are ready.
+2. **Put the demo on your laptop.** Double-click **Paydlux Demo** on the Desktop. It
+   starts the desk, waits until the desk actually answers over HTTPS, then opens the
+   two tabs you need. Nothing else to type.
+   (Rebuild the app after code changes with `npm run app:demo:build`. To run it
+   without the app: `npm run app:demo`.)
+3. **Test the loop once** (below). If it settles, you are ready.
+
+The app cannot fail in the two ways that used to kill a demo:
+- **already running** → it says so and opens the tabs instead of dying on a taken port
+- **today's budget already spent** → it raises the *daily* budget (the per-payment
+  ceiling is untouched, it is pinned into the signed transaction hash) and says so
+- **a stale Paydlux squatting on a port** → it stops that process, names it, and starts clean
+
+It never touches the donation door on `donate.paydlux.com`: that one runs on mainnet
+with real USDC, and a demo must not restart a public money address.
 
 ## On stage: the 5-minute script
 
