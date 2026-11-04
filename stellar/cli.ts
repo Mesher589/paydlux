@@ -331,6 +331,7 @@ async function sell() {
     // --split is the honest mode: this process cannot approve anything.
     approver: split ? undefined : keys.approver,
     split,
+    agentSeed: keys.agent,
     portalKey,
     publicHost,
     agentKeys: [pub(keys.agent)],
@@ -883,21 +884,49 @@ async function escrow() {
   const keys = data.keys ?? {};
   const agent = Keypair.fromSecret(keys.agent);
   if (!keys.approver) {
+    // The recommended setup: the desk is running with the phone approver, so
+    // hand the release to the DESK instead of writing a file nothing reads.
+    // The desk queues it, the phone signs the claim, the desk submits it.
+    const deskPort = Number(arg("desk") ?? 4022);
+    const portalKey = data.desk?.portalKey as string | undefined;
+    if (portalKey) {
+      try {
+        const res = await fetch(`http://127.0.0.1:${deskPort}/escrow?k=${encodeURIComponent(portalKey)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            escrowId: hit.balanceId, order: hit.memo || undefined,
+            amount: hit.amount,
+            asset: hit.asset === "native" ? "XLM" : hit.asset.split(":")[0],
+            buyer: hit.buyer,
+          }),
+        });
+        if (res.ok) {
+          const queued = await res.json();
+          console.log(`\nrelease queued on the approval desk as ${queued.id}.`);
+          console.log(`  open:  ${flag("tls") ? `https://${PUBLIC_HOST}` : `http://127.0.0.1:${deskPort}`}/phone/?k=${portalKey}`);
+          console.log(`  the order is ${hit.memo || hit.balanceId} — approve on the phone only if you delivered it.`);
+          console.log(`  the phone signs the claim; the desk submits it. vault balance updates after.\n`);
+          return;
+        }
+        console.log(`the desk answered ${res.status}; falling back to the manual challenge.\n`);
+      } catch {
+        // No desk listening on that port. Fall through to the file path.
+      }
+    }
     const challenge = await prepareEscrowRelease(network, hit.balanceId, vault.address, agent);
     console.log(`\nthis laptop holds one of the two keys, so the release needs your phone.\n`);
     console.log(describeChallenge(challenge));
-    console.log(`\n  open:  ${flag("tls") ? `https://${PUBLIC_HOST}` : "http://127.0.0.1:4022"}/?k=${data.desk?.portalKey ?? "…"}`);
-    console.log(`  the order id is ${hit.memo || hit.balanceId} — sign only if you delivered it.\n`);
-    // Written out so the second signature can be added by whatever holds the
-    // approver key, without retyping XDR. Said exactly, because a promise here
-    // that nothing implements is a lie in the seller's terminal: no process
-    // reads this file back on its own.
+    console.log(`\n  the order id is ${hit.memo || hit.balanceId} — sign only if you delivered it.\n`);
+    console.log(`no approval desk is answering on port ${deskPort}. start one with \`paydlux sell\` (or the`);
+    console.log(`app:mainnet:sell script) and re-run this command, and the release goes to your phone.`);
+    console.log(`or finish it on a machine that holds the approver key.\n`);
+    // Written out so the second signature can still be added by hand from a
+    // machine that holds the approver key. Said exactly: nothing reads this
+    // file back on its own.
     const file = path.replace(/\.json$/, ".escrow-release.json");
     writeFileSync(file, JSON.stringify({ order: hit.memo || hit.balanceId, challenge }, null, 2), { mode: 0o600 });
-    console.log(`challenge written to ${file} (0600).`);
-    console.log(`nothing completes this by itself. finish it from a machine that holds the approver key,`);
-    console.log(`or run this command there. the phone approver releases PAYMENTS today; releasing ESCROW`);
-    console.log(`from the phone is not wired yet, so until it is, use the second key's machine.\n`);
+    console.log(`challenge also written to ${file} (0600) for the manual path.\n`);
     return;
   }
   const out = await claimEscrow(network, hit.balanceId, vault.address, { agent, approver: Keypair.fromSecret(keys.approver) });

@@ -76,6 +76,10 @@
   const SC_ADDRESS = 4;                // soroban account: we refuse it
   const ASSET_NATIVE = 0, ASSET_ALPHANUM4 = 1, ASSET_ALPHANUM12 = 2;
   const OP_PAYMENT = 1;
+  // ClaimClaimableBalance is the escrow release: the vault taking the money the
+  // buyer locked. The phone must read it as well as payments, or a seller on a
+  // --split vault can never release an escrow from the phone.
+  const OP_CLAIM_CLAIMABLE_BALANCE = 15;
   const PRECOND_NONE = 0, PRECOND_TIME = 1, PRECOND_V2 = 2;
   const MEMO_NONE = 0, MEMO_TEXT = 1, MEMO_ID = 2, MEMO_HASH = 3, MEMO_RETURN = 4;
   const STROOPS = 10000000;
@@ -318,14 +322,29 @@
     const hasSource = r.u32();
     const source = hasSource ? readMuxedAccount(r) : null;
     const type = r.u32();                          // OperationBody union switch
+    if (type === OP_CLAIM_CLAIMABLE_BALANCE) {
+      // ClaimableBalanceID is an union: switch word, then 32 raw bytes. Only
+      // the balance-id form (switch 0) exists today; anything else is refused
+      // rather than skipped, because skipping bytes misreads the rest.
+      const which = r.u32();
+      if (which !== 0) throw new Error("claimable balance id form " + which + " is not supported; refusing to sign");
+      // The balance id AS THE LEDGER AND THE SDK NAME IT: the 4-byte union
+      // switch ("00000000") followed by the 32-byte hash. Returning only the
+      // hash would disagree with every id the desk and Horizon use, and the
+      // desk's "this claim targets THIS escrow" check would never match.
+      const balanceId = "00000000" + hex(r.fixed(32));
+      // The claim op carries NO amount: the money is whatever the ledger says
+      // that balance holds. The human verifies the balance id instead.
+      return { type, source, balanceId, destination: null, asset: null, amount: null };
+    }
     if (type !== OP_PAYMENT) {
-      throw new Error("operation type " + type + " is not a payment; this app only signs payments");
+      throw new Error("operation type " + type + " is not a payment or an escrow claim; this app only signs those");
     }
     const destination = readMuxedAccount(r);
     const asset = readAsset(r);
     const amount = r.i64();
     if (amount < 0n) throw new Error("payment amount is negative; refusing to sign");
-    return { type, source, destination, asset, amount: amount.toString() };
+    return { type, source, destination, asset, amount: amount.toString(), balanceId: null };
   }
 
   function readTransaction(r) {
@@ -336,7 +355,7 @@
     const memo = readMemo(r);
     const numOps = r.u32();
     if (numOps !== 1) {
-      throw new Error("this app signs single-payment transactions, and this one has "
+      throw new Error("this app signs one operation at a time, and this one has "
         + numOps + " operations");
     }
     const ops = [];
@@ -471,6 +490,6 @@
     encodeAccountEd25519, decodeAccountEd25519,
     decodeSecretSeed, encodeSecretSeed, importSecretSeed, importSecretSeedPair,
     NETWORK_ID, crc16Xmodem,
-    ENVELOPE_TYPE_TX, OP_PAYMENT, STROOPS,
+    ENVELOPE_TYPE_TX, OP_PAYMENT, OP_CLAIM_CLAIMABLE_BALANCE, STROOPS,
   };
 })(typeof globalThis !== "undefined" ? globalThis : this);

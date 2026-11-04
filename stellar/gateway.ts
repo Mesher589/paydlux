@@ -64,6 +64,12 @@ export type GatewayConfig = {
    * phone sends back.
    */
   split?: boolean;
+  /**
+   * The agent seed, passed to the desk so it can build an ESCROW RELEASE
+   * challenge (the claim is signed agent + phone approver). Same trust level
+   * as `principal`: it is the machine-side half, never the approving half.
+   */
+  agentSeed?: string;
   deskPort?: number;
   /** gate the approval portal behind a single unguessable link */
   portalKey?: string;
@@ -126,6 +132,7 @@ export class Gateway {
       port: cfg.deskPort ?? 4022,
       portalKey: cfg.portalKey,
       split: cfg.split,
+      agentSeed: cfg.agentSeed,
       publicHost: cfg.publicHost,
       decideWithinSeconds: cfg.decideWithinSeconds,
       policy: cfg.policy,
@@ -176,6 +183,18 @@ export class Gateway {
         ? (now >= e.releaseAt ? "releasable" : "locked")
         : outcome.settled ? "released" : o.escrowId ? "gone" : "awaiting_escrow";
       if (state === "released" && !opts.includeSettled) continue;
+      // A releasable escrow goes to the desk automatically, so the phone sees
+      // the release without anyone re-running the CLI. addEscrow is idempotent
+      // per balance id, so this is safe to call from a read path.
+      if (state === "releasable" && e) {
+        this.desk.addEscrow({
+          escrowId: o.escrowId!,
+          order: o.id,
+          amount: e.amount,
+          asset: e.asset === "native" ? "XLM" : e.asset.split(":")[0],
+          buyer: e.buyer,
+        });
+      }
       out.push({ ...o, state, escrow: e, outcome });
     }
     return out.sort((a, b) => (a.releaseAt ?? 0) - (b.releaseAt ?? 0));
