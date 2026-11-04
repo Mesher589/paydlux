@@ -371,8 +371,16 @@ async function openReview(id) {
     const rec = await api("/challenge/" + encodeURIComponent(id));
     const env = X.parseEnvelope(rec.xdr);
     const op = env.tx.ops[0];
-    if (env.tx.ops.length !== 1 || op.type !== X.OP_PAYMENT) {
-      throw new Error("this transaction is not a single payment \u2014 refusing to sign it");
+    // Two shapes are signable: a single payment, and a single escrow claim
+    // (the vault taking money a buyer locked in a claimable balance). Anything
+    // else is refused, and the escrow branch verifies the claim targets the
+    // balance id the desk says this approval is for.
+    const isClaim = op.type === X.OP_CLAIM_CLAIMABLE_BALANCE;
+    if (env.tx.ops.length !== 1 || (op.type !== X.OP_PAYMENT && !isClaim)) {
+      throw new Error("this transaction is not a single payment or escrow claim \u2014 refusing to sign it");
+    }
+    if (isClaim && rec.escrowId && op.balanceId !== rec.escrowId) {
+      throw new Error("the claim targets a different balance than this approval is for \u2014 refusing");
     }
     const { hash } = await X.transactionHash(rec.xdr, X.NETWORK_ID[rec.network] || rec.network);
     if (rec.hash && hash !== rec.hash) {
@@ -391,10 +399,14 @@ async function openReview(id) {
     }
     current = {
       id, xdr: rec.xdr, hash,
-      amount: X.formatAmount(op.amount),
-      token: op.asset.code || "XLM",
-      issuer: op.asset.issuer || "",
-      payee: X.encodeAccountEd25519(op.destination.pub),
+      // A claim op carries no amount: the money is whatever the ledger says the
+      // balance holds. The desk read that number when it queued the release,
+      // so the human sees it from the desk, and the balance id next to it is
+      // what ties the number to the order.
+      amount: isClaim ? String(rec.amount ?? "") : X.formatAmount(op.amount),
+      token: isClaim ? String(rec.asset ?? "") : (op.asset.code || "XLM"),
+      issuer: isClaim ? "" : (op.asset.issuer || ""),
+      payee: isClaim ? op.balanceId : X.encodeAccountEd25519(op.destination.pub),
       vault: X.encodeAccountEd25519(env.tx.source.pub),
       // Read the memo out of the envelope, not out of the server's summary:
       // the envelope is what is being signed, so it is the only source that
@@ -417,6 +429,10 @@ async function openReview(id) {
     $("amount").append(num, tk);
     set("wantsBig", current.wants);
     set("token", current.issuer ? `${current.token} (${current.issuer.slice(0, 12)}\u2026)` : current.token);
+    // An escrow claim has no payee: the money goes to the vault itself. What
+    // the human verifies instead is the balance id — the ledger address of the
+    // locked money — so the row is labelled for that.
+    $("payeeLabel").textContent = isClaim ? "Escrow balance" : "Payee";
     set("payee", current.payee);
     set("vault", current.vault);
     set("wants", current.wants);
@@ -432,6 +448,10 @@ async function openReview(id) {
     $("netChip").style.color = current.network === "public" ? "var(--ok)" : "var(--warn)";
     err("signErr", "");
     resetHold();
+    // The hold button says what it does. Releasing an escrow is not paying
+    // anyone: it is the vault taking money a buyer already locked. After
+    // resetHold, which resets the label to the payment wording.
+    if (isClaim) set("holdLbl", "Hold to release \u0026 sign");
     show("review", true);
     show("queue", false);
     $("review").scrollIntoView({ behavior: "smooth", block: "start" });

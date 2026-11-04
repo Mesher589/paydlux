@@ -65,7 +65,7 @@
     "address:check": "tsx stellar/check-address.ts",
     "test:address": "tsx stellar/address-check.ts",
     "site:deploy": "tsx stellar/make-site-qr.ts paydlux-mainnet.json site/qr.svg && wrangler deploy",
-    "test:escrow": "tsx stellar/escrow-check.ts && tsx stellar/escrow-gateway-check.ts"
+    "test:escrow": "tsx stellar/escrow-check.ts && tsx stellar/escrow-gateway-check.ts && tsx stellar/escrow-phone-check.ts"
   },
   "keywords": [
     "x402",

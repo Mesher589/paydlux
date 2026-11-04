@@ -24,6 +24,7 @@ import {
   createApprovalChallenge, submitApproved, challengeQrPayload,
   type ApprovalChallenge,
 } from "./phone.ts";
+import { claimEscrow, prepareEscrowRelease } from "./escrow.ts";
 
 /**
  * The approver app is plain static files under phone-app/. Read on each request
@@ -126,6 +127,36 @@ function recNetwork(rec: DeskRecord) {
   return rec.challenge!.network;
 }
 
+/**
+ * Same binding check as verifyAgainstChallenge, for an escrow release. The
+ * signed transaction must be the claim the desk issued (same hash), carry both
+ * signatures, and — the escrow-specific part — claim EXACTLY the balance this
+ * record names. Without that last check a signature collected for one escrow
+ * could be replayed against another order's queue entry.
+ */
+function verifyEscrowAgainstChallenge(signedXdr: string, rec: DeskRecord): string | null {
+  const ch = rec.challenge!;
+  let signed: any;
+  try {
+    signed = TransactionBuilder.fromXDR(signedXdr, passphrase(recNetwork(rec)));
+  } catch {
+    return "the phone returned something that is not a valid transaction for this network";
+  }
+  const hash = Buffer.from(signed.hash()).toString("hex");
+  if (hash !== ch.hash) {
+    return `signed a different transaction (${hash.slice(0, 12)}… was not issued for ${rec.id}, which is ${ch.hash.slice(0, 12)}…)`;
+  }
+  if (signed.signatures.length < 2) {
+    return `only ${signed.signatures.length} signature(s); the vault needs 2`;
+  }
+  const op = signed.operations?.[0];
+  if (!op || op.type !== "claimClaimableBalance") return "the transaction is not an escrow claim";
+  if (op.balanceId !== rec.escrowId) {
+    return `the claim targets ${String(op.balanceId).slice(0, 12)}…, not the escrow ${String(rec.escrowId).slice(0, 12)}… this approval is for`;
+  }
+  return null;
+}
+
 function readBody(req: IncomingMessage) {
   return new Promise<string>((resolve, reject) => {
     let data = "";
@@ -182,6 +213,20 @@ export type DeskRecord = {
   challenge?: ApprovalChallenge;
   qr?: string;
   signedXdr?: string;
+  /**
+   * What the human is being asked to authorise. `payment` is the vault paying
+   * money OUT. `escrow` is the vault claiming a claimable balance the buyer
+   * already locked — money coming IN. The distinction is load-bearing: the
+   * spending mandate caps payments out, so it must not touch an escrow
+   * release, and the signed transaction is verified against a different
+   * operation type.
+   */
+  kind?: "payment" | "escrow";
+  /** escrow records: the claimable balance to claim, and the order it belongs to */
+  escrowId?: string;
+  order?: string;
+  /** escrow records: the asset the balance pays out ("XLM", "USDC", ...) */
+  asset?: string;
 };
 
 export type DeskStore = DeskRecord;
@@ -198,6 +243,15 @@ export type DeskConfig = {
    * the desk submits it. The approver seed never touches this machine.
    */
   split?: boolean;
+  /**
+   * The agent seed (the machine-side key). Payments are built with the
+   * principal key; an ESCROW CLAIM is built with the agent key — that is the
+   * key pair the escrow was designed around (agent + phone approver). The desk
+   * needs it to build the release challenge, exactly as it needs the principal
+   * seed to build a payment challenge. It is not the approving half: the claim
+   * still needs the phone's signature to reach the vault's threshold of 2.
+   */
+  agentSeed?: string;
   /** how long a human has to decide before the payment is dead */
   decideWithinSeconds?: number;
   port: number;
@@ -298,6 +352,52 @@ export class ApprovalDesk {
     return this.allByKey(key)[0] ?? null;
   }
 
+  /**
+   * Queue an escrow release for the human. This is the missing half of
+   * `paydlux escrow --release` on a --split vault: the money already sits in a
+   * claimable balance the buyer locked, so releasing it is the vault CLAIMING
+   * that balance — money coming IN, not going out. The claim still needs the
+   * vault's threshold of 2 (agent + approver), and the approver half lives on
+   * the phone, so it goes through the same challenge/sign/submit loop as a
+   * payment, tagged `kind: "escrow"` so the spending mandate — which caps
+   * money OUT — never touches it.
+   *
+   * The generic fields (uri/price/body) are filled so the portal page renders
+   * the row without knowing about escrow; the structured fields carry the
+   * truth the verification uses.
+   */
+  addEscrow(input: {
+    escrowId: string;
+    order?: string;
+    amount: string;
+    asset: string;
+    buyer?: string;
+  }): DeskRecord {
+    this.sweepExpired();
+    // One live record per balance id. A seller who runs --release twice must
+    // not get two Approve buttons for the same money: the second signature
+    // would fail on the ledger (balance already claimed) and confuse the human.
+    for (const r of this.records.values()) {
+      if (r.kind === "escrow" && r.escrowId === input.escrowId &&
+          r.status !== "denied" && r.status !== "failed" && r.status !== "expired") return r;
+    }
+    const id = `esc_${input.escrowId.slice(-8)}${randomBytes(3).toString("hex")}`;
+    const label = input.order || `${input.escrowId.slice(0, 16)}…`;
+    const rec: DeskRecord = {
+      id, at: Date.now(),
+      uri: `/escrow/${label}`,
+      // amount only, like a payment price; the asset rides in `asset` and
+      // reaches the phone as `token`, so the row never prints "3.5 XLM XLM".
+      price: input.amount,
+      body: `escrow release — buyer ${input.buyer ?? "?"} — balance ${input.escrowId}`,
+      status: "pending",
+      kind: "escrow", escrowId: input.escrowId, order: input.order, asset: input.asset,
+    };
+    this.records.set(id, rec);
+    console.log(`[desk] ${id} escrow release awaiting a human: ${rec.price} (${label})`);
+    return rec;
+  }
+
   get(id: string) { this.sweepExpired(); return this.records.get(id) ?? null; }
   list(): DeskRecord[] { this.sweepExpired(); return [...this.records.values()]; }
 
@@ -361,6 +461,29 @@ export class ApprovalDesk {
     const rec = this.records.get(id);
     if (!rec) throw new Error("unknown handle " + id);
     if (rec.status !== "pending") throw new Error(`already ${rec.status}`);
+    // An escrow release is money coming IN. The spending mandate caps money
+    // going OUT, so applying it here would refuse a release for a budget that
+    // the release does not touch — and would make the seller's own money
+    // unclaimable on a day they already spent.
+    if (rec.kind === "escrow") {
+      // dev mode (both keys on this machine): claim straight away.
+      if (this.cfg.approver && this.cfg.agentSeed) {
+        try {
+          const out = await claimEscrow(
+            this.cfg.vault.network, rec.escrowId!, this.cfg.vault.address,
+            { agent: Keypair.fromSecret(this.cfg.agentSeed), approver: Keypair.fromSecret(this.cfg.approver) },
+          );
+          rec.status = "settled";
+          rec.tx = out.txHash;
+          console.log(`[desk] ${rec.id} ESCROW RELEASED ${rec.price} — ledger ${rec.tx}`);
+        } catch (e) {
+          rec.status = "failed";
+          rec.reason = (e as Error).message;
+        }
+        return rec;
+      }
+      return this.requestEscrowSignature(rec);
+    }
     // Check before asking the phone. A human who approves a payment the mandate
     // will refuse has spent a Face ID scan and a signature for nothing.
     if (this.mandateBlock(rec, "refused before asking")) return rec;
@@ -424,6 +547,67 @@ export class ApprovalDesk {
   }
 
   /**
+   * Split mode step 1 for an ESCROW release: build the claim, sign it with the
+   * agent key, hand it to the phone. `prepareEscrowRelease` reads the ledger
+   * and refuses a balance that does not exist or whose timer has not passed,
+   * so a queued-but-fake escrow dies here with a real reason instead of
+   * reaching the human as a signable challenge.
+   */
+  private async requestEscrowSignature(rec: DeskRecord) {
+    if (!this.cfg.agentSeed) {
+      rec.status = "failed";
+      rec.reason = "an escrow release needs the agent seed on this machine to build the claim";
+      return rec;
+    }
+    try {
+      const challenge = await prepareEscrowRelease(
+        this.cfg.vault.network, rec.escrowId!, this.cfg.vault.address,
+        Keypair.fromSecret(this.cfg.agentSeed),
+      );
+      // The challenge carries its own id; keep the desk's handle so
+      // /challenge/:id and /signed/:id line up with what the queue shows.
+      challenge.id = rec.id;
+      rec.challenge = challenge;
+      rec.qr = challengeQrPayload(challenge);
+      rec.status = "awaiting_phone";
+      console.log(`[desk] ${rec.id} escrow claim sent to the phone: ${rec.price}`);
+    } catch (e) {
+      rec.status = "failed";
+      rec.reason = (e as Error).message;
+      console.log(`[desk] ${rec.id} escrow claim refused before asking: ${rec.reason}`);
+    }
+    return rec;
+  }
+
+  /**
+   * Split mode step 2 for an ESCROW release: the phone signed the claim.
+   * No mandate check — this is money coming IN — and no recordSpend: the
+   * daily budget counts payments OUT, and counting a release against it would
+   * make the seller's own earned money unclaimable.
+   */
+  private async completeEscrow(rec: DeskRecord, signedXdr: string) {
+    const problem = verifyEscrowAgainstChallenge(signedXdr, rec);
+    if (problem) {
+      rec.status = "failed";
+      rec.reason = problem;
+      console.log(`[desk] ${rec.id} rejected: ${problem}`);
+      return rec;
+    }
+    rec.signedXdr = signedXdr;
+    try {
+      const res = await submitApproved(signedXdr, this.cfg.vault.network, this.cfg.vault.horizon);
+      rec.status = "settled";
+      rec.tx = res.hash;
+      console.log(`[desk] ${rec.id} ESCROW RELEASED ${rec.price} — ledger ${rec.tx}`);
+    } catch (e) {
+      rec.status = "failed";
+      rec.reason = (e as Error).message;
+      console.log(`[desk] ${rec.id} failed on the ledger: ${rec.reason}`);
+    }
+    return rec;
+  }
+
+  /**
    * Split mode step 2: the phone answered. `signedXdr` is the transaction with
    * the approver signature added, returned by signChallenge() on the phone.
    * The desk cannot forge this: it does not hold the approver key, and the
@@ -435,6 +619,10 @@ export class ApprovalDesk {
     if (!rec) throw new Error("unknown handle " + id);
     if (rec.status !== "awaiting_phone") throw new Error(`not awaiting a phone signature (it is ${rec.status})`);
     if (!rec.challenge) throw new Error("no challenge was issued for " + id);
+    // An escrow release verifies against its own shape (a claim of THIS
+    // balance id) and bypasses the spending mandate, which only caps payments
+    // going out.
+    if (rec.kind === "escrow") return this.completeEscrow(rec, signedXdr);
 
     // Bind the answer to the question. Without this check the desk would submit
     // any signed transaction posted to this route — including one the phone
@@ -508,9 +696,14 @@ export class ApprovalDesk {
       tx: r.tx,
       /** what the buyer says it wants. Agent-controlled text: render as text. */
       wants: (r.body ?? "").slice(0, 200),
-      token: this.cfg.vault.token.getCode(),
+      token: r.kind === "escrow" ? r.asset ?? this.cfg.vault.token.getCode() : this.cfg.vault.token.getCode(),
       expiresAt: r.challenge?.summary.expiresAt,
       hash: r.challenge?.hash,
+      // The phone renders an escrow row differently: it is money IN, and the
+      // human verifies the balance id, not a payee.
+      kind: r.kind ?? "payment",
+      escrowId: r.escrowId,
+      order: r.order,
     }));
   }
 
@@ -711,7 +904,36 @@ export class ApprovalDesk {
             wants: (rec.body ?? "").slice(0, 200),
             memo: rec.challenge.summary.memo ?? "",
             expiresAt: rec.challenge.summary.expiresAt,
+            // An escrow challenge renders differently on the phone: the op
+            // carries no amount and no payee, so the app shows the amount from
+            // here and asks the human to check the balance id.
+            kind: rec.kind ?? "payment",
+            escrowId: rec.escrowId,
+            // The claim op carries no amount, so the phone shows the amount
+            // the desk read from the ledger alongside the balance id it puts
+            // in front of the human.
+            amount: rec.kind === "escrow" ? rec.price : undefined,
+            asset: rec.kind === "escrow" ? rec.asset : undefined,
           });
+        }
+
+        // The CLI's hand-off for `paydlux escrow --release` on a --split vault:
+        // queue this balance on the running desk so the phone can sign it.
+        // Key-gated like every other route, and it only queues — approving
+        // still needs the human's hold-and-sign on the phone.
+        if (url.pathname === "/escrow" && req.method === "POST") {
+          const body = await readBody(req);
+          const input = JSON.parse(body || "{}");
+          if (!input.escrowId) return send(400, { error: "escrowId is required" });
+          if (!input.amount || !input.asset) return send(400, { error: "amount and asset are required" });
+          const rec = this.addEscrow({
+            escrowId: String(input.escrowId),
+            order: input.order ? String(input.order) : undefined,
+            amount: String(input.amount),
+            asset: String(input.asset),
+            buyer: input.buyer ? String(input.buyer) : undefined,
+          });
+          return send(200, { id: rec.id, status: rec.status, escrowId: rec.escrowId });
         }
 
         const m = url.pathname.match(/^\/(approve|deny|signed)\/([\w-]+)$/);

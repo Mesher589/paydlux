@@ -4,7 +4,7 @@
 // ledger settles another. So this is a real check, not a smoke test.
 //
 //   npx tsx phone-app/xdr-check.ts
-import { Keypair, Horizon, TransactionBuilder, Operation, Asset, xdr } from "@stellar/stellar-sdk";
+import { Keypair, Horizon, TransactionBuilder, Operation, Asset, Memo, xdr } from "@stellar/stellar-sdk";
 import { StellarVault, passphrase, createApprovalChallenge } from "../stellar/index.ts";
 import { hex } from "../stellar/vault.ts";
 import { createRequire } from "node:module";
@@ -167,16 +167,33 @@ const main = async () => {
   try { X.addSignature(signed, phoneSig, approver.rawPublicKey()); } catch (e: any) { tooMany = e.message; }
   ok(/already has 2/.test(tooMany), `a third signature is refused: ${tooMany.slice(0, 44)}`);
 
-  // ---------------------------------------------------------------- refusals
-  console.log("\n\u2014 things the phone refuses to sign at all");
+  // ---------------------------------------------------------------- escrow claim
+  console.log("\n\u2014 an escrow release: the phone reads a claim, not just a payment");
   const acc: any = await horizon.loadAccount(principal.publicKey());
   const tb = () => new TransactionBuilder(acc, {
     fee: "100", networkPassphrase: "Test SDF Network ; September 2015",
   });
+  // A claimable balance id is the ledger's own address for locked money:
+  // version byte 00 + hash of the create-claimable-balance op. Any 32 bytes
+  // work for a decode test — the point is the phone reads the id, not that the
+  // balance exists.
+  const bid = "00000000" + "ab".repeat(32);
+  const claimTx = tb().addOperation(Operation.claimClaimableBalance({ balanceId: bid }))
+    .addMemo(Memo.text("release ord_abc")).setTimeout(100).build();
+  claimTx.sign(principal);
+  const claimEnv = X.parseEnvelope(claimTx.toXDR());
+  ok(claimEnv.tx.ops.length === 1 && claimEnv.tx.ops[0].type === X.OP_CLAIM_CLAIMABLE_BALANCE,
+    "a claimClaimableBalance decodes as an escrow claim, not a refusal");
+  ok(claimEnv.tx.ops[0].balanceId === bid, `the claim carries the balance id the SDK put in (${bid.slice(0, 16)}…)`);
+  ok(claimEnv.tx.ops[0].amount === null, "a claim has no amount field to misread");
+  ok(claimEnv.tx.memo === "release ord_abc", "the claim's order memo survives the phone's decode");
+
+  // ---------------------------------------------------------------- refusals
+  console.log("\n\u2014 things the phone refuses to sign at all");
   const refuse = (label: string, xdrString: string) => {
     let msg = "";
     try { X.parseEnvelope(xdrString); } catch (e: any) { msg = e.message; }
-    ok(/not a payment|refusing|not supported|soroban|expected a v1|single-payment/.test(msg),
+    ok(/not a payment|refusing|not supported|soroban|expected a v1|one operation at a time/.test(msg),
       `${label}: refused \u2014 ${msg.slice(0, 56)}`);
   };
   refuse("a path payment", tb().addOperation(Operation.pathPaymentStrictReceive({
