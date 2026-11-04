@@ -242,6 +242,31 @@ too, because a budget that silently reads as unspent is worse than no budget.
 The banner shows what is left: `policy: max 10 per payment, 50 per day (27.50
 left today)`.
 
+### Spend it by category, and edit the rules in a browser
+
+One vault, several pockets. Open **spending rules** on the approvals page (or
+`/rules` on the desk) and set, per named category, its own per-payment ceiling and
+daily budget — then say which seller wallet belongs to which category:
+
+```
+data-api    max 3 / payment    6 / day     ← api.example.com wallet
+coding      max 1 / payment    2 / day     ← assistant wallet
+```
+
+A category can only be **tighter** than the limits above it; it can never raise
+them, because the base ceilings are checked first. That asymmetry is the security
+property, and `npm run test:policy` proves it, along with the queue counting
+inside a category and the fact that a form posted from another site cannot raise
+your budget.
+
+Edits are saved to the vault's config file, so they survive a restart. Once you
+have edited them there, the saved numbers win over `--max`/`--daily` on the next
+start, and the seller prints which it is using — a rule that quietly reverts by
+morning is worse than no rule.
+
+`stellar/policy.ts` is the engine; the page is a plain HTML form, so it works with
+JavaScript off.
+
 ### What is enforced where (said honestly)
 
 | enforced by Stellar | enforced by the desk (`policy.ts`) |

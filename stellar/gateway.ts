@@ -22,7 +22,7 @@ import { createHash } from "node:crypto";
 import { Keypair, StrKey, Transaction } from "@stellar/stellar-sdk";
 import { StellarVault, StellarTxError, hex, passphrase, type Amount, type Mandate, type Network } from "./vault.ts";
 import { ApprovalDesk, type DeskStore } from "./desk.ts";
-import type { PolicyEngine } from "./policy.ts";
+import type { PolicyEngine, Policy } from "./policy.ts";
 import { claimEscrow, escrowOutcome, horizonUrl, prepareEscrowRelease, readEscrow, verifyEscrow } from "./escrow.ts";
 import { submitApproved } from "./phone.ts";
 
@@ -95,6 +95,11 @@ export type GatewayConfig = {
    * enforced — see DeskConfig.policy for why the gateway is the wrong place.
    */
   policy?: PolicyEngine;
+  /**
+   * Persist an edited spending policy. Passed straight to the desk; see
+   * DeskConfig.onPolicyChange for why it is a callback.
+   */
+  onPolicyChange?: (policy: Policy) => void;
 };
 
 export type PaymentProof = {
@@ -136,6 +141,7 @@ export class Gateway {
       publicHost: cfg.publicHost,
       decideWithinSeconds: cfg.decideWithinSeconds,
       policy: cfg.policy,
+      onPolicyChange: cfg.onPolicyChange,
     });
   }
 
