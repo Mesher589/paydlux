@@ -164,8 +164,9 @@ Source: `brand/deck.html`; regenerate with the print step below.
 3. Why now — machine counterparties, metered APIs, cheap programmable rails
 4. The product — mandate → inside the box → outside the box → a person signs
 5. How it is built — split keys, claimable-balance escrow, ledger-seeded budgets, rules only tighten
-6. Traction — 23 mainnet transactions, 4,583 npm downloads/30d, 85 commits, revenue 0 stated plainly
-7. The demo — the live desk screenshot, "not a mockup"
+6. Traction — 23 mainnet transactions, 4,583 npm downloads/30d, 89 commits, revenue 0 stated plainly
+7. The demo — the live desk screenshot, "not a mockup" (OCR-checked: amounts, seller address,
+   public agent signatures and TX hashes only — no PIN, key, seed or URL in the image)
 8. The raise — three integrations, an entity, a buyer SDK, a published mandate format; pricing unset
 9. Risks out loud — no demand proof, moving standards, solo and unincorporated, one chain proven
 10. Founder and the ask
@@ -175,8 +176,9 @@ background graphics on.
 
 ### Hosting the deck — done
 
-**Live: <https://paydlux.com/deck.pdf>** — 200, `application/pdf`, 446,963 bytes, sha256
-`6039578e…62d9` identical to `brand/deliverables/paydlux-deck.pdf`.
+**Live: <https://paydlux.com/deck.pdf>** — 200, `application/pdf`, 447,063 bytes, sha256
+`a7f1fc33…51ec3` identical to `brand/deliverables/paydlux-deck.pdf`. The edge can serve a stale
+`cf-cache-status: HIT` for ~10s after a deploy: re-check with `?v=n` before concluding a deploy failed.
 
 `site/robots.txt` now carries `Disallow: /deck.pdf`, so the deck is unlisted rather than indexed:
 anyone with the link can read it, search engines should not surface it.
