@@ -430,7 +430,7 @@ async function sell() {
     if (who) bad(`port ${demoPort} (showcase) is already in use by ${who}.`);
     await startDemo({
       port: demoPort, price, network, vault: vault.address, token: data.token.code,
-      explorer: data.explorer ?? "", gateway: gw,
+      explorer: data.explorer ?? "", gateway: gw, route: uri, payee,
       onKeys: (pubs) => { gw.agentKeys = [pub(keys.agent), ...pubs]; },
     });
     log(`showcase is listening on 127.0.0.1:${demoPort} for https://${DEMO_HOST}`);

@@ -89,6 +89,20 @@ export interface DemoConfig {
   donateHost?: string;
   /** Called whenever a key is enrolled, so the gateway's accepted set follows. */
   onKeys?: (pubs: string[]) => void;
+  /**
+   * The route the showcase sells (e.g. "/market/data"). /demo/last only reports
+   * settled payments for THIS route, so a seller's private sales never appear
+   * on a public page — a settled demo payment is the proof being shown, not the
+   * seller's order book.
+   */
+  route?: string;
+  /**
+   * The address the seller gets paid at. /demo/last uses it to read the last
+   * real settlement straight off the ledger, so the proof survives a restart of
+   * the demo process — an investor visiting at 3am, with the seller asleep,
+   * still gets a hash that exists on a public explorer.
+   */
+  payee?: string;
 }
 
 /** The approver app's StrKey/XDR module, read from disk so it stays one file. */
@@ -122,6 +136,41 @@ function demoPayload(cfg: DemoConfig) {
     network: cfg.network,
     proof: cfg.explorer,
   }, null, 2);
+}
+
+/**
+ * The last payment this vault really made to the seller, read off the public
+ * ledger. The in-memory desk forgets on restart; the ledger does not, so an
+ * investor who visits while the seller is asleep still reaches a hash they can
+ * open on an explorer instead of a spinner. Cached — one page load should not
+ * hammer horizon, and the answer only moves when a payment settles.
+ */
+let ledgerProof: { at: number; price: string; tx: string } | null = null;
+let ledgerProofAt = 0;
+
+async function lastSettledOnLedger(cfg: DemoConfig) {
+  if (!cfg.payee) return null;
+  if (ledgerProof && Date.now() - ledgerProofAt < 5 * 60 * 1000) return ledgerProof;
+  const host = cfg.network === "public" ? "horizon.stellar.org" : "horizon-testnet.stellar.org";
+  try {
+    const r = await fetch(`https://${host}/accounts/${cfg.vault}/payments?order=desc&limit=25`,
+      { signal: AbortSignal.timeout(4000) });
+    if (!r.ok) return null;
+    const records = ((await r.json())?._embedded?.records) ?? [];
+    for (const p of records) {
+      // horizon calls the hash `transaction_hash`; a record without one is not a
+      // proof, so it is skipped rather than printed as "undefined".
+      if (p?.to !== cfg.payee || !(Number(p.amount) > 0) || !p.transaction_hash) continue;
+      ledgerProof = {
+        at: Date.parse(p.created_at) || 0,
+        price: String(p.amount),
+        tx: String(p.transaction_hash),
+      };
+      ledgerProofAt = Date.now();
+      return ledgerProof;
+    }
+  } catch { /* no ledger reachable: the page still works, just without the extra proof */ }
+  return null;
 }
 
 /**
@@ -214,10 +263,33 @@ export function startDemo(cfg: DemoConfig): Promise<Server> {
       return;
     }
 
+    // A visitor watching alone cannot finish step 4 — the seller's phone is the
+    // only thing that can sign it, and the seller may be asleep. The loop is
+    // worthless as a demo if it ends at "waiting", so hand them the most recent
+    // payment this route actually settled: a hash they can open on the explorer
+    // without trusting this page. Nothing else about the payment is returned —
+    // a tx hash is already public on the ledger, the buyer and the content are
+    // not.
+    if (p === "/demo/last") {
+      const done = cfg.gateway.desk.list()
+        .filter((r) => r.status === "settled" && r.tx && (!cfg.route || r.uri === cfg.route))
+        .sort((a, b) => b.at - a.at)[0];
+      const proof = done
+        ? { at: done.at, price: done.price, tx: done.tx }
+        : await lastSettledOnLedger(cfg);
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(JSON.stringify(proof ?? { none: true }));
+      return;
+    }
+
     // Everything else belongs to the gateway: the paid route, /pay/status.
     // Only demo paths are exposed here, so pointing the tunnel at this port
     // cannot reach a seller's private routes by guessing a URI.
-    if (!(p === DEMO_ROUTE || p === "/pay/status" || p === "/demo/terms")) {
+    if (!(p === DEMO_ROUTE || p === "/pay/status" || p === "/demo/terms" || p === "/demo/last")) {
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found", routes: [DEMO_ROUTE] }));
       return;
@@ -267,6 +339,7 @@ h1{font-size:30px;margin:0 0 6px;letter-spacing:-.01em}
 pre{margin:10px 0 0;padding:10px 12px;background:#0f1213;border:1px solid var(--line);border-radius:8px;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;word-break:break-word;color:#cfd6d0}
 button{font:inherit;padding:11px 18px;border-radius:9px;border:1px solid var(--gold);background:var(--gold);color:#1a1408;font-weight:600;cursor:pointer;margin:22px 0 0}
 button[disabled]{opacity:.45;cursor:default}
+.note{margin:12px 0 0;color:var(--dim);font-size:14px}
 .door{margin:30px 0 0;border:1px solid var(--line);border-left:3px solid var(--gold);background:#1a1f21;border-radius:10px;padding:18px 20px}
 .door .q{margin:0 0 6px;font-weight:600}
 .door .a{margin:0;color:var(--dim);font-size:15px}
@@ -298,8 +371,8 @@ on a phone, and the ledger settles it. You are about to drive that loop.</p>
   <div class="step" id="s3"><h3><span class="n">3</span>Request the payment</h3>
     <p>The browser signs the request — not the payment — and sends it. The seller parks it for a human.</p>
     <pre id="o3">not run</pre></div>
-  <div class="step" id="s4"><h3><span class="n">4</span>A human decides</h3>
-    <p>The seller sees the exact payment on their phone and holds for 1.2 seconds to approve. Nothing here can skip that.</p>
+  <div class="step" id="s4"><h3><span class="n">4</span>A human decides — and it isn't you</h3>
+    <p>The buyer half ends at step 3. From here the <b>seller</b> decides: the parked payment appears on their phone with the amount, the payee and the deadline, and a person holds the button for 1.2 seconds. The key that signs it never leaves that device, so no code — including this page — can do it for them. If nobody is at the phone, this step waits. That is the product, not a bug.</p>
     <pre id="o4">not run</pre></div>
   <div class="step" id="s5"><h3><span class="n">5</span>The ledger proves it</h3>
     <p>Same request, now served. The transaction hash is public and verifiable without trusting this page.</p>
@@ -307,6 +380,9 @@ on a phone, and the ledger settles it. You are about to drive that loop.</p>
 </div>
 
 <button id="go">Run the loop</button>
+<p class="note">You are the <b>buyer</b> here. Steps 1–3 happen in your browser. Step 4 happens on the
+seller's phone — if nobody is holding it, this page will show you the last payment this exact loop
+settled, with a hash you can open on the explorer.</p>
 
 <div class="door">
   <p class="q">That was practice. Nothing you just did cost anything.</p>
@@ -336,6 +412,8 @@ function demoScript() {
   const el = (id) => document.getElementById(id);
   const say = (n, txt) => { el("o" + n).textContent = txt; el("s" + n).classList.add("done"); };
   const PAY = "x-payment";
+  let NET = "testnet";   // which explorer the proof links point at
+  let TOKEN = "";        // the token the demo is priced in, for readable amounts
 
   async function main() {
     const btn = el("go"); btn.disabled = true;
@@ -345,6 +423,8 @@ function demoScript() {
     try {
       const r = await fetch(ROUTE, { cache: "no-store" });
       terms = JSON.parse(r.headers.get(PAY) || "null");
+      NET = String((terms && terms.network) || "testnet").replace("stellar:", "");
+      TOKEN = String((terms && terms.token && terms.token.code) || "");
       say(1, "HTTP " + r.status + "\\n" + JSON.stringify(terms, null, 2));
       if (r.status !== 402) { say(1, "HTTP " + r.status + " — this showcase is not asking for payment right now"); return; }
     } catch (e) { say(1, "request failed: " + e); return; }
@@ -376,8 +456,18 @@ function demoScript() {
     say(3, "HTTP 202 — parked as " + (parked.handle || "?") + "\\n" + (parked.reason || ""));
 
     // 4 — wait for a person. The page polls the seller's own status route.
-    say(4, "waiting for the seller's phone…");
+    // Say plainly what is happening: the seller's phone is the only thing that
+    // can sign this, and a visitor on their own laptop cannot make that happen.
+    // Bare silence here reads as a broken demo.
+    say(4, "parked. Now the seller's phone decides — that signature cannot come from this browser.\\nwaiting…");
     const seen = await poll(parked.statusUrl);
+    if (seen.status === "timed out waiting for a human") {
+      el("o4").textContent = "nobody signed, so nothing was paid — exactly as designed.\\n"
+        + "Run the loop again when the seller is at their phone.";
+      await showLast();
+      btn.disabled = false;
+      return;
+    }
     say(4, "status: " + seen.status + (seen.reason ? "\\n" + seen.reason : ""));
     if (seen.status !== "settled" && seen.status !== "paid") { btn.disabled = false; return; }
 
@@ -399,9 +489,27 @@ function demoScript() {
     for (let i = 0; i < 150; i++) {
       const j = await (await fetch(u, { cache: "no-store" })).json();
       if (j.status && j.status !== "pending" && j.status !== "awaiting_phone") return j;
+      // ~16 s with nobody at the phone: show that this loop does settle, instead
+      // of letting a visitor sit on a spinner and conclude the product is fake.
+      if (i === 8) await showLast();
       await new Promise((r) => setTimeout(r, 2000));
     }
     return { status: "timed out waiting for a human" };
+  }
+
+  /**
+   * The most recent payment THIS route settled, as a public hash. It is not a
+   * substitute for the live approval — it is labelled as a different payment —
+   * it is the answer to "okay, but has this ever actually happened?".
+   */
+  async function showLast() {
+    try {
+      const last = await (await fetch("/demo/last", { cache: "no-store" })).json();
+      if (!last || !last.tx) return;
+      el("o4").textContent += "\\n\\nthe same loop, settled for real on " + new Date(last.at).toLocaleString()
+        + " (" + Number(last.price) + (TOKEN ? " " + TOKEN : "") + ") — verify it without this page:\\nhttps://stellar.expert/explorer/"
+        + NET + "/transaction/" + last.tx;
+    } catch { /* the demo still works without the extra proof */ }
   }
 
   el("go").addEventListener("click", main);

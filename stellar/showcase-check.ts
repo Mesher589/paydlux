@@ -75,7 +75,7 @@ async function main() {
   let handed: string[] = [];
   const srv = await startDemo({
     port, price: "4.50", network: "testnet", vault, token: "AGPAY",
-    explorer: "https://stellar.expert", gateway: gw,
+    explorer: "https://stellar.expert", gateway: gw, route: DEMO_ROUTE,
     onKeys: (pubs) => { handed = pubs; gw.agentKeys = pubs; },
   });
   // node:http, not fetch: fetch refuses to set Host (it is a forbidden header
@@ -106,6 +106,25 @@ async function main() {
   ok(/script-src 'self'/.test(pageRes.headers["content-security-policy"] ?? ""),
     "the page pins script-src to its own origin");
   ok(/testnet/i.test(pageRes.body), "the page says plainly which network this is");
+  ok(/A human decides — and it isn't you/.test(pageRes.body),
+    "step 4 says plainly that the seller's phone signs, not the visitor");
+
+  // ---- 3b. "has this ever actually happened?" -----------------------------
+  // A visitor on their own laptop cannot finish step 4 — only the seller's
+  // phone can sign it — so the page offers the last payment THIS route settled.
+  // It must answer, and it must leak nothing but a hash the ledger already
+  // makes public.
+  const none = await at("/demo/last", DEMO_HOST);
+  ok(none.status === 200 && /"none":\s*true/.test(none.body), "/demo/last is empty before anything settles");
+  gw.desk.enqueue("/market/private", "9.00", "secret body", "secret content", "k-priv");
+  gw.desk.list().forEach((r) => { r.status = "settled"; r.tx = "PRIVATEHASH"; });
+  ok(!/PRIVATEHASH/.test((await at("/demo/last", DEMO_HOST)).body),
+    "/demo/last never shows a settled payment from a route other than the showcase's");
+  gw.desk.enqueue(DEMO_ROUTE, "4.50", "b", "c", "k-demo");
+  gw.desk.list().forEach((r) => { if (r.uri === DEMO_ROUTE) { r.status = "settled"; r.tx = "DEMOHASH123"; } });
+  const last = await at("/demo/last", DEMO_HOST);
+  ok(/DEMOHASH123/.test(last.body), "/demo/last hands over the settled demo payment");
+  ok(!/secret|PRIVATEHASH/.test(last.body), "/demo/last leaks no body, buyer or other-route hash");
   // ---- 4. an expired vouch stops being accepted ---------------------------
   // Syncing only when a key is enrolled left expired keys live inside the
   // gateway until an unrelated visitor showed up. The expiry clock has to
