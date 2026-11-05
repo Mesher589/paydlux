@@ -3,8 +3,11 @@
 Four targets, chosen 2026-11-05. Field-by-field answers below are drafted and fact-checked.
 Anything in `[[SQUARES]]` only the founder can supply. Nothing here has been submitted.
 
-**Hard blockers before any of these go out:** full name, a real email address, a LinkedIn URL
-(Afore and Boost both mark it required), and your city/country.
+**Identity supplied 2026-11-05:** Sebastian Sikora · founder@paydlux.com · Warsaw, Poland ·
+**no LinkedIn** (see the LinkedIn note at the bottom — it is the one field still open).
+
+**Deck:** `brand/deliverables/paydlux-deck.pdf` — 10 slides, 16:9, built from `brand/deck.html`.
+Needs a public URL before the Afore form is filled (see "Hosting the deck").
 
 ---
 
@@ -18,13 +21,13 @@ and "show us why you're best suited to tackle the problem".
 
 | Field | Answer |
 |---|---|
-| First and last name * | `[[FOUNDER NAME]]` |
-| Email * | `[[EMAIL]]` |
-| LinkedIn URL * | `[[LINKEDIN]]` |
+| First and last name * | Sebastian Sikora |
+| Email * | founder@paydlux.com |
+| LinkedIn URL * | **open — no account exists.** See "The LinkedIn problem" below. |
 | Applying to * | **Pre-seed checks** |
 | Company name | Paydlux |
-| Pitch deck URL | `[[DECK LINK — must be "anyone with link can view"]]` (optional but they say "strongly suggested" for pre-seed checks) |
-| Location * | `[[CITY, COUNTRY]]` |
+| Pitch deck URL | `[[public link — see "Hosting the deck"]]`. Deck is built: `brand/deliverables/paydlux-deck.pdf`. They call it "strongly suggested" for pre-seed checks. |
+| Location * | Warsaw, Poland |
 | ~5 sentences * | see below |
 | Current realized monthly revenue * | `0` |
 | Co-founder? * | **Working solo** |
@@ -56,17 +59,17 @@ their process starts with a call, so that one goes by email to the team.
 
 | Field | Answer |
 |---|---|
-| Full name * | `[[FOUNDER NAME]]` |
-| Email * | `[[EMAIL]]` |
-| LinkedIn URL * | `[[LINKEDIN]]` |
-| Location * | `[[CITY, COUNTRY]]` |
+| Full name * | Sebastian Sikora |
+| Email * | founder@paydlux.com |
+| LinkedIn URL * | **open — no account exists.** See "The LinkedIn problem" below. |
+| Location * | Warsaw, Poland |
 | How did you hear about Boost VC? * | An X post listing pre-seed funds that back pre-revenue founders outside the US (2026-11-05) |
-| Why did you decide to become a founder? * | `[[ONLY YOU CAN ANSWER THIS TRUTHFULLY — they will smell a written-for-you answer. Draft prompt: what was the moment you decided to build this instead of taking a job? Two or three honest sentences.]]` |
+| Why did you decide to become a founder? * | see the founder answer below — his words, grammar only |
 | Startup name * | Paydlux |
 | One-liner * | A payment rail for AI agents, with a human signature in the loop. |
 | Progress so far * | see below |
 | What does a $50K check unlock? * | see below |
-| Deck / demo / video | `https://demo.paydlux.com` + `https://github.com/Mesher589/paydlux` + `[[DECK LINK]]` |
+| Deck / demo / video | `https://demo.paydlux.com` + `https://github.com/Mesher589/paydlux` + `[[deck PDF link]]` (the form takes an upload too) |
 
 **Progress (all verified today, nothing inflated):**
 
@@ -103,7 +106,7 @@ To: `hello@underscore.vc` · Subject: **Paydlux — an AI agent that can pay you
 > signature. Public SDK `@paydlux/agent`, 4,583 downloads in the last 30 days. Demo you can click
 > right now: https://demo.paydlux.com
 >
-> Pre-seed raise, no revenue yet, working solo from `[[CITY, COUNTRY]]`. Two minutes this week?
+> Pre-seed raise, no revenue yet, working solo from Warsaw, Poland. Two minutes this week?
 
 Their thesis is *applied* AI and they are geography-agnostic with $500K first cheques — the first
 paragraph is deliberately about a working product, not a model.
@@ -122,8 +125,60 @@ $250K–$3M.
 
 ---
 
+## The founder answer (Boost's "why did you decide to become a founder?")
+
+His words, grammar tidied, nothing added:
+
+> I was retired, and I got bored — I wanted something new to work on. For a while now I have been
+> building small projects with AI agents, and they kept hitting the same wall: they could do the work,
+> but they had no way to pay for anything. Nothing existed that I could hand an agent and still safely
+> authorise as a human. So I stopped looking for one and built the thing I was missing. It is live on
+> Stellar mainnet now. I am not chasing a market — I am solving a problem I ran into myself.
+
+Cut on purpose: the winter-garden line (opaque to a stranger) and any hint of apology for being
+retired. Kept: "retired and bored", because it is true, it is unusual, and Boost's own FAQ asks for
+authenticity over polish.
+
+## The LinkedIn problem
+
+Afore and Boost both mark it **required**, and an Airtable/Fillout required field will not accept a
+blank. Options, in order of preference:
+
+1. **Create a minimal LinkedIn** — real name, "Founder, Paydlux", Warsaw. Ten minutes. Investors look
+   at it anyway, and a missing one is a small, avoidable deduction.
+2. Put the GitHub profile in that field instead. It is a real, verifiable profile
+   (`github.com/Mesher589/paydlux`, 85 public commits) and it is honest about what it is. Weaker than
+   a LinkedIn, better than a blank or a lie.
+3. Do not submit to those two until 1 or 2 is settled. Underscore and Array are email — no LinkedIn
+   needed, so those two can go out today either way.
+
 ## Deck
 
-Afore says a deck URL is optional but strongly suggested for pre-seed checks; Boost says it's
-optional; the two email routes will ask for one in the reply. There is no deck yet.
-8–10 slides, built from the numbers above, is the highest-value missing artefact.
+Built: **`brand/deliverables/paydlux-deck.pdf`** — 10 slides, 16:9, in the site's own design language
+(Instrument Serif / Archivo / JetBrains Mono, the same ink-and-gold palette as paydlux.com).
+Source: `brand/deck.html`; regenerate with the print step below.
+
+1. Title and one-liner
+2. The problem — agents can buy, cannot pay
+3. Why now — machine counterparties, metered APIs, cheap programmable rails
+4. The product — mandate → inside the box → outside the box → a person signs
+5. How it is built — split keys, claimable-balance escrow, ledger-seeded budgets, rules only tighten
+6. Traction — 23 mainnet transactions, 4,583 npm downloads/30d, 85 commits, revenue 0 stated plainly
+7. The demo — the live desk screenshot, "not a mockup"
+8. The raise — three integrations, an entity, a buyer SDK, a published mandate format; pricing unset
+9. Risks out loud — no demand proof, moving standards, solo and unincorporated, one chain proven
+10. Founder and the ask
+
+Regenerate: open `brand/deck.html` in a browser and print to PDF, 1280×720 px pages, no margins,
+background graphics on.
+
+### Hosting the deck
+
+Afore's form says explicitly: *"Ensure public access is turned on — anyone with link can view."*
+A private Drive link reads as a broken application. Two ways:
+
+- **Our own domain (recommended):** drop the PDF into `site/` as `deck.pdf` and run
+  `npm run site:deploy` → `https://paydlux.com/deck.pdf`. Not secret; it is a marketing asset.
+  Needs the founder's go-ahead because it publishes the deck to anyone who guesses the URL.
+- **Google Drive / Dropbox** with "anyone with the link" — fine, but the link rots and looks smaller.
+
