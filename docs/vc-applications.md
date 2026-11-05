@@ -121,7 +121,8 @@ To: `deals@array.vc` — same body, swap the first line for:
 > and who is liable if it buys the wrong thing?
 
 They list AI infra, dev tools and fintech — Paydlux is all three, and they want a first cheque of
-$250K–$3M.
+$250K–$3M. **Read "Are these firms real?" below first: Array already funds Sapiom, a company selling
+payment controls for AI agents.** Same category. Send the deck, not the design internals.
 
 ---
 
@@ -172,13 +173,68 @@ Source: `brand/deck.html`; regenerate with the print step below.
 Regenerate: open `brand/deck.html` in a browser and print to PDF, 1280×720 px pages, no margins,
 background graphics on.
 
-### Hosting the deck
+### Hosting the deck — done
 
-Afore's form says explicitly: *"Ensure public access is turned on — anyone with link can view."*
-A private Drive link reads as a broken application. Two ways:
+**Live: <https://paydlux.com/deck.pdf>** — 200, `application/pdf`, 446,963 bytes, sha256
+`6039578e…62d9` identical to `brand/deliverables/paydlux-deck.pdf`.
 
-- **Our own domain (recommended):** drop the PDF into `site/` as `deck.pdf` and run
-  `npm run site:deploy` → `https://paydlux.com/deck.pdf`. Not secret; it is a marketing asset.
-  Needs the founder's go-ahead because it publishes the deck to anyone who guesses the URL.
-- **Google Drive / Dropbox** with "anyone with the link" — fine, but the link rots and looks smaller.
+`site/robots.txt` now carries `Disallow: /deck.pdf`, so the deck is unlisted rather than indexed:
+anyone with the link can read it, search engines should not surface it.
+
+Note for future deploys: `npm run site:deploy` calls bare `wrangler`, which is **not installed** on
+this machine — the shell exports `NODE_ENV=production`, so `npm install` prunes devDependencies.
+Install once with `NODE_ENV=development npm install --save-dev wrangler`, then deploy with the
+credentials from `~/.hermes/secrets/cloudflare.token` (that file is two `KEY=value` lines, so
+`CLOUDFLARE_API_TOKEN=$(cat …)` produces an invalid header — grep the line and `cut -d= -f2-`).
+
+---
+
+## Are these firms real? (checked 5 Nov 2026)
+
+The four funds are real and independently verifiable. The two X accounts that listed them are not
+funds and are not a reliable source — treat them as leads, then verify each fund itself, which is
+what was done here.
+
+| Firm | Verifiable record | Notes |
+|---|---|---|
+| Afore Capital | SEC exempt reporting adviser, **CRD 285601 / SEC 802-110177**, registered since 9 Mar 2017, 17 VC funds, $731.9M gross private-fund assets, 680 2nd St, San Francisco. Domain `afore.vc` registered 2016. | Real. See the data caveat below. |
+| Boost VC | Operating since 2012 (`boost.vc` registered 2012), ~$400M AUM, 440 startups funded, 6 unicorns; portfolio includes Deepgram, Colossal, Radiant Nuclear, K2Space. Founder reviews of the 2016 batch on Hacker News. | Real. No fee is charged to apply. |
+| Underscore VC | SEC exempt reporting adviser, **CRD 283164 / SEC 802-107555**, Boston, $451M regulatory AUM, 9 funds, Form D filings for Fund II ($117M, 2018), Fund II Extension ($18M, 2022), Fund III ($58M, 2023); named principals Michael Skok, John Pearce et al. `underscore.vc` registered 2016. | Real. |
+| Array Ventures | `array.vc` registered 2015, founded 2016, SF, ~$250M AUM across 4 funds, 80+ investments, 11 staff on LinkedIn. Contact `deals@array.vc`. | Real — **but see the conflict below.** |
+
+**Do not confuse Array Ventures (`array.vc`) with Array Capital (`arraycapital.com`)** — the second
+is a Zürich sell-side M&A advisory with no relation to the fund in that X post.
+
+### What the two X posts actually are
+
+- **@vahidf24 ("Vee")** — ex-VC, now founder of a fundraising product (@Evalyze_ai), ~2K followers,
+  follows 824. The list is content marketing for his own tool: useful as a directory, not vetted.
+- **@JoinFoundersHub ("Founder's Hub")** — joined **December 2025**, 221 posts, ~1.1K followers,
+  11 following, links a Discord. An engagement account, not an investor and not a referral channel.
+
+Neither one is investing anyone. Applying because their post says so costs nothing; treating them as
+a source of facts does.
+
+### The data we are actually handing over
+
+Name, email, city, a LinkedIn, and a public link to the deck. No code, no cap table, no customer
+data, no keys, no wallet secrets. That is the normal price of an application. Three real caveats:
+
+1. **Afore redistributes the application.** Their own FAQ: they share founders' applications with
+   investors in their curated network unless you email `jack@afore.vc` to opt out. Decide before
+   submitting, not after.
+2. **Array Ventures already funds a direct competitor.** Their portfolio lists **Sapiom — "payment
+   infrastructure and spending controls for AI agents"** (Series A), plus agent companies Runable and
+   Happyrobot. They are a fine thematic fit *and* a fund that now owns a rival in the same category.
+   Send the short version, not the internals, and expect them to be slow or cold on it.
+3. **`paydlux.com` was registered 30 Oct 2026 — six days old.** That is the weakest trust signal in
+   the whole application, and it is ours, not theirs. The live demo and the mainnet ledger history are
+   the counterweight; do not hide the date, and do not backdate anything.
+
+### What to refuse, from anyone
+
+A fund or "accelerator" that asks to be paid a fee to apply or to be listed; asks for private repo
+access, a seed phrase, a private key, or a wallet they control; DMs first with generic praise; or
+offers a term sheet before a call. None of the four above has done any of this. If one does, it is an
+impersonator using a real firm's name — check the sender domain against the CRD record above.
 
