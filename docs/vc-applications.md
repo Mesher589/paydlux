@@ -4,14 +4,25 @@ Four targets, chosen 2026-11-05. Field-by-field answers below are drafted and fa
 Anything in `[[SQUARES]]` only the founder can supply. Nothing here has been submitted.
 
 **Identity supplied 2026-11-05:** Sebastian Sikora · founder@paydlux.com · Warsaw, Poland ·
-**no LinkedIn** (see the LinkedIn note at the bottom — it is the one field still open).
+**LinkedIn profile** `https://www.linkedin.com/in/sebastian-sikora-00572b449`. No company Page —
+LinkedIn refuses page creation on an account with too few connections (see "The LinkedIn problem").
+The forms ask for the **profile** URL, so that is what goes in.
 
 **Deck:** `brand/deliverables/paydlux-deck.pdf` — 10 slides, 16:9, built from `brand/deck.html`.
 Needs a public URL before the Afore form is filled (see "Hosting the deck").
 
 ---
 
-## 1. Afore Capital — Afore Alpha, pre-seed checks
+## 1. Afore Capital — Afore Alpha, pre-seed checks — **SUBMITTED 5 Nov 2026**
+
+Confirmation shown by the form: "Thanks for taking the time to let us know more about you! We
+review submissions on a rolling basis, and will reach out soon if there's a fit."
+
+Two form quirks worth knowing if this is ever redone: `Location` is a multi-select of US-centric
+presets (sf bay, nyc, london, india, other) — there is no free typing and no "create option", so
+Warsaw goes in as **other**, which then reveals a required dependent field **Location - other**
+("City, State format") that takes `Warsaw, Poland`. The ~5-sentence answer is a rich-text
+contenteditable, not a textarea.
 
 Form: `https://airtable.com/apprAAsE4JhFBd8nL/pagQ6YvjLzhmbBGML/form`
 Their own words: "any industry or located anywhere in the world", "never need a referral",
@@ -23,11 +34,11 @@ and "show us why you're best suited to tackle the problem".
 |---|---|
 | First and last name * | Sebastian Sikora |
 | Email * | founder@paydlux.com |
-| LinkedIn URL * | **open — no account exists.** See "The LinkedIn problem" below. |
+| LinkedIn URL * | `https://www.linkedin.com/in/sebastian-sikora-00572b449` |
 | Applying to * | **Pre-seed checks** |
 | Company name | Paydlux |
-| Pitch deck URL | `[[public link — see "Hosting the deck"]]`. Deck is built: `brand/deliverables/paydlux-deck.pdf`. They call it "strongly suggested" for pre-seed checks. |
-| Location * | Warsaw, Poland |
+| Pitch deck URL | `https://paydlux.com/deck.pdf` (live). They call it "strongly suggested" for pre-seed checks. |
+| Location * | **other** + dependent `Location - other` = `Warsaw, Poland` |
 | ~5 sentences * | see below |
 | Current realized monthly revenue * | `0` |
 | Co-founder? * | **Working solo** |
@@ -50,7 +61,26 @@ and "show us why you're best suited to tackle the problem".
 
 ---
 
-## 2. Boost VC — Fellowship, $50K for 3%
+## 2. Boost VC — Fellowship, $50K for 3% — **BLOCKED on a founder video**
+
+The form (`boostvc.fillout.com/boostfellowship`) marks **"Please upload a short video (<5 mins)"**
+as **required** — every other answer is filled and verified, but the form cannot be submitted
+without a video of the founder speaking to camera. Their rules, verbatim: founder(s) only, direct
+to camera, **no slides, no special effects, no AI-generated content**; if the file is too big,
+upload a doc with a YouTube/Vimeo/Loom link. Content they ask for:
+
+1. What made you want to build this, why you are the one to do it, and what you have realised
+   about this problem that everyone else is still missing.
+2. Why your startup matters — how the world changes when you win.
+3. Pick one: proudest accomplishment before age 21 / craziest situation you have been in /
+   a hobby or interest completely unrelated to the startup.
+
+Everything else on the form is already answered in the browser session and reproduced below.
+Deck upload is optional; the deck link sits inside the progress answer.
+
+Video prep is ready: script + recording instructions in `docs/boost-video-script.md`, teleprompter
+page at `brand/teleprompter-boost.html` (267 words, ~105 s at a comfortable pace, speed/text-size
+controls, works in iPhone Safari).
 
 Form: `https://boostvc.fillout.com/boostfellowship` — **applications due 12/1**.
 Their thesis: crypto is one of their named categories, they invest globally, "cockroaches",
@@ -61,7 +91,7 @@ their process starts with a call, so that one goes by email to the team.
 |---|---|
 | Full name * | Sebastian Sikora |
 | Email * | founder@paydlux.com |
-| LinkedIn URL * | **open — no account exists.** See "The LinkedIn problem" below. |
+| LinkedIn URL * | `https://www.linkedin.com/in/sebastian-sikora-00572b449` |
 | Location * | Warsaw, Poland |
 | How did you hear about Boost VC? * | An X post listing pre-seed funds that back pre-revenue founders outside the US (2026-11-05) |
 | Why did you decide to become a founder? * | see the founder answer below — his words, grammar only |
@@ -77,7 +107,7 @@ their process starts with a call, so that one goes by email to the team.
 > Paydlux vault (`GCJGF6DYZXC3MAYXWFFSJNVGSQYNYERRFPQKC4X24WNWHPQKZNUYVWUB`), including a payment
 > that was released only after a human signed it on a real iPhone — the escrow is a claimable
 > balance that the agent cannot touch alone. Public npm SDK `@paydlux/agent`, 25 releases, latest
-> 0.1.23, 4,583 downloads in the last 30 days. Public repo, 85 commits. Four live surfaces:
+> 0.1.23, 4,583 downloads in the last 30 days. Public repo, 91 commits. Four live surfaces:
 > paydlux.com, demo.paydlux.com, desk.paydlux.com, donate.paydlux.com. A Stellar Community Fund
 > Build application is in. Revenue: zero, and I am not going to dress that up.
 
@@ -140,18 +170,24 @@ Cut on purpose: the winter-garden line (opaque to a stranger) and any hint of ap
 retired. Kept: "retired and bored", because it is true, it is unusual, and Boost's own FAQ asks for
 authenticity over polish.
 
-## The LinkedIn problem
+## The LinkedIn problem — closed 5 Nov 2026, at "good enough"
 
-Afore and Boost both mark it **required**, and an Airtable/Fillout required field will not accept a
-blank. Options, in order of preference:
+A profile exists: `https://www.linkedin.com/in/sebastian-sikora-00572b449`. That satisfies the
+required field on both Afore's and Boost's forms.
 
-1. **Create a minimal LinkedIn** — real name, "Founder, Paydlux", Warsaw. Ten minutes. Investors look
-   at it anyway, and a missing one is a small, avoidable deduction.
-2. Put the GitHub profile in that field instead. It is a real, verifiable profile
-   (`github.com/Mesher589/paydlux`, 85 public commits) and it is honest about what it is. Weaker than
-   a LinkedIn, better than a blank or a lie.
-3. Do not submit to those two until 1 or 2 is settled. Underscore and Array are email — no LinkedIn
-   needed, so those two can go out today either way.
+**No company Page exists and none will be created.** LinkedIn returns "Feature not available — you
+don't have enough connections to create a LinkedIn Page" on a brand-new account; the lever is the
+account's connection count, not a setting, and it is not worth engineering. It costs nothing here:
+both forms ask for the **profile** URL, not a company page. The Paydlux position on the profile stays
+plain text with no logo — cosmetic.
+
+Still open on the profile (public `<title>` reads `Sebastian Sikora - Poland | Professional Profile |
+LinkedIn`, which means the **headline is empty** and the location is country-only). Fix when convenient:
+headline `Founder & CEO at Paydlux — payment rails for AI agents, live on Stellar mainnet`, location
+`Warsaw, Metropolitan Area`. Neither blocks an application.
+
+Fallback if a form ever rejects the URL: the GitHub profile (`github.com/Mesher589/paydlux`, 91 public
+commits) is a real, verifiable profile.
 
 ## Deck
 
