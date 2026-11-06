@@ -5,9 +5,19 @@ Run this yourself. No engineer, no terminal on stage, no agent needed.
 ## The night before (once)
 
 1. **Charge the iPhone** and open the Paydlux app once so the approver key is loaded.
-2. **Put the demo on your laptop.** Double-click **Paydlux Demo** on the Desktop. It
-   starts the desk, waits until the desk actually answers over HTTPS, then opens the
-   two tabs you need. Nothing else to type.
+2. **Put the demo on your laptop.** Double-click **Paydlux Demo** on the Desktop. A
+   menu opens — no terminal, nothing to type:
+
+   | Button | What it does |
+   |---|---|
+   | Start the demo | starts the Cloudflare tunnel if it is down, starts the desk and the demo page, waits until both actually answer over HTTPS, opens the two tabs |
+   | Check-up: what is wrong? | one page: tunnel, desk, demo page, donation door, and whether the iPhone has talked to this desk — in plain words, with the fix |
+   | Is the iPhone connected? | the same iPhone check on its own |
+   | Show the iPhone link (QR code) | draws the desk link as a QR on screen; the iPhone camera opens the app with the link already filled in |
+   | Copy the demo key to the clipboard | the testnet approver seed onto the clipboard, for the app's Re-add key screen. It is never printed |
+   | Open the demo page and the desk | the two tabs, without restarting anything |
+   | Restart / Stop the demo | clean restart, or shut the demo down (the donation door is never touched) |
+
    (Rebuild the app after code changes with `npm run app:demo:build`. To run it
    without the app: `npm run app:demo`.)
 3. **Test the loop once** (below). If it settles, you are ready.
@@ -27,25 +37,25 @@ There are two vaults and they do **not** share an approver key:
 
 | What you are running | Vault | Approver key the phone must hold |
 |---|---|---|
-| the demo (`demo.paydlux.com`) | testnet `GCGT7S4J…` | starts `485a67d6…` |
-| the donation door (`donate.paydlux.com`) | mainnet `GCJGF6DY…` | starts `f98d5f1a…` |
+| the demo (`demo.paydlux.com`) | testnet `GCGT7S4J…` | starts `fd942abc…` |
+| the donation door (`donate.paydlux.com`) | mainnet `GCJGF6DY…` | starts `ed5a1125…` |
 
 The app holds **one** approver key. If you set the phone up for mainnet, the demo
 will park a payment and wait forever: the vault on testnet does not recognise that
 key. The app shows the key it holds as 8 hex characters on the "Add your approver
-key" screen, so you can tell which one is in there before changing anything.
+key" screen, and the **Paydlux Demo** app prints the 8 characters the running desk
+expects, so you can tell which one is in there before changing anything.
 
-To put the demo key on the phone (about a minute):
+To put the demo key on the phone (about a minute, no typing):
 
-1. On the Mac, in `/users/project1`, copy the testnet approver seed to the clipboard —
-   it never appears on screen and never goes into a chat:
-   ```bash
-   node -e "process.stdout.write(JSON.parse(require('fs').readFileSync('paydlux-vault.json','utf8')).keys.approver)" | pbcopy
-   ```
-2. Open the Paydlux app → the **⋯** menu → **Re-add key**.
-3. **Forget the stored key**, paste into the `S…` field, press **Store on this device**.
-4. If it asks for the desk link, paste the `phone` link the demo printed
-   (`https://desk.paydlux.com/phone/?k=…`).
+1. Open **Paydlux Demo** on the Desktop and press **Copy the demo key to the
+   clipboard**. The seed never appears on screen and never goes into a chat.
+2. On the iPhone: open the Paydlux app → the **⋯** menu → **Re-add key**.
+3. **Forget the stored key**, long-press in the `S…` field, **Paste**, press
+   **Store on this device**. (Mac and iPhone copy-paste across devices when both
+   are on the same iCloud account, Wi-Fi and Bluetooth.)
+4. If it asks for the desk link, press **Show the iPhone link (QR code)** on the
+   Mac and scan it with the iPhone camera — the app opens with the link filled in.
 
 Forgetting a key on the phone loses nothing: both seeds live on this Mac in
 `paydlux-vault.json` (testnet) and `paydlux-mainnet.json` (mainnet), both `0600`,
@@ -100,10 +110,12 @@ Anything outside it comes back to me for a signature."*
 
 | Symptom | Fix |
 |---|---|
-| Demo page sits on *"the seller's phone decides"* and the phone shows nothing | the desk restarted — reload the phone tab, then press **Run the loop** again |
+| Demo page sits on *"the seller's phone decides"* and the phone shows nothing | press **Check-up: what is wrong?** in the Paydlux Demo app. It names the cause. The usual one: the iPhone app only polls the queue **while it is open on screen** — open Paydlux and pull to refresh |
+| Check-up says the iPhone last talked to this desk minutes ago | the phone is pointed at an older desk (usually the mainnet one). Press **Show the iPhone link (QR code)** and scan it with the iPhone camera |
 | Demo page prints *"nobody signed, so nothing was paid"* | expected when the phone is not holding the key for **this** network — see "Which approver key is on the iPhone" above |
-| Phone says "no approver key on this device" | re-open the app (or paste the approver seed into the phone tab and press Import) |
-| Approval fails with a key/sequence error | the vault expects a different key than this device holds — the demo needs the **testnet** approver, the donation door needs the **mainnet** one |
+| Phone says "no approver key on this device" | press **Copy the demo key to the clipboard**, then Re-add key on the phone and paste |
+| Approval fails with a key/sequence error | the vault expects a different key than this device holds — the demo needs the **testnet** approver (`fd942abc…`), the donation door needs the **mainnet** one (`ed5a1125…`) |
+| `desk.paydlux.com` and `demo.paydlux.com` both fail to load | the Cloudflare tunnel is not running (it dies on a reboot). **Start the demo** starts it for you |
 | No internet | run the loop on the laptop's own network: `npm run app:testnet:sell`, then open `http://127.0.0.1:8787` — same page, no tunnel |
 
 ## What to say when they ask the hard questions
