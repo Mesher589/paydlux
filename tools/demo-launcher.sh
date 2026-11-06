@@ -66,6 +66,7 @@ DESK=https://desk.paydlux.com
 DEMO=https://demo.paydlux.com
 TUNNEL=paydlux-desk
 LOG_DIR="$HOME/Library/Logs"
+mkdir -p "$LOG_DIR"
 LOG="$LOG_DIR/paydlux-demo.log"
 TLOG="$LOG_DIR/paydlux-tunnel.log"
 QR="$LOG_DIR/paydlux-phone-qr.png"
@@ -280,13 +281,25 @@ esac
 
 while true; do
   state=$(url_up "$DESK/healthz" && url_up "$DEMO/" && echo "up" || echo "down")
-  choice=$(osascript - "$state" <<'EOF'
+  # The menu is a Standard Additions list. Two things learned the hard way:
+  # `without multiple selection` is not valid AppleScript — the script died with
+  # a syntax error before any window appeared, so the app looked like it opened
+  # and instantly quit — and a silent exit on failure is indistinguishable from
+  # a crash, so an osascript failure now raises an alert that says so.
+  # No "tell System Events to activate" here: that asks the user for Apple Events
+  # permission on a demo app, which is worse than a list that may sit behind a
+  # window.
+  if ! choice=$(osascript - "$state" 2>>"$LOG" <<'EOF'
 on run argv
-  choose from list {"Start the demo", "Check-up: what is wrong?", "Is the iPhone connected?", "Show the iPhone link (QR code)", "Copy the demo key to the clipboard", "Open the demo page and the desk", "Restart the demo", "Stop the demo", "Quit"} with prompt "Paydlux demo — the public URLs are " & item 1 of argv & "." without multiple selection
+  choose from list {"Start the demo", "Check-up: what is wrong?", "Is the iPhone connected?", "Show the iPhone link (QR code)", "Copy the demo key to the clipboard", "Open the demo page and the desk", "Restart the demo", "Stop the demo", "Quit"} with prompt "Paydlux demo — the public URLs are " & item 1 of argv & "." default items {"Check-up: what is wrong?"}
 end run
 EOF
-)
-  [ -z "$choice" ] && exit 0
+  ); then
+    alert "The menu did not open" "macOS refused to show the list. The reason is in $LOG. The demo itself is unaffected — it is still running, and the same buttons work from a terminal in the Paydlux folder: ./tools/demo-launcher.sh" warning
+    exit 1
+  fi
+  # Cancel returns the word "false"; an empty answer means the same thing.
+  [ -z "$choice" ] || [ "$choice" = "false" ] && exit 0
   case "$choice" in
     "Start the demo") start_demo ;;
     "Check-up: what is wrong?") doctor ;;
