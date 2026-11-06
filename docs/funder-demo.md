@@ -70,36 +70,54 @@ the network is part of the hash). That is a decision to make deliberately, not a
 
 ## The second app: **Paydlux Mainnet** (real money)
 
-Same buttons, different product. Double-click **Paydlux Mainnet** on the Desktop and
-it runs the **donation door** at `https://donate.paydlux.com` — the page an agent
-pays when it wants to buy from us for real, on mainnet, into the 2-of-2 vault.
+Double-click **Paydlux Mainnet** on the Desktop. It runs two things: the **donation
+door** at `https://donate.paydlux.com` (an agent pays us, into the 2-of-2 vault) and
+the **same four-step demo** the Demo app shows, running against the mainnet vault —
+so the transaction on screen is a real one on the public ledger.
 
 | Button | What it does |
 |---|---|
 | Start the donation door | starts the tunnel if needed, lifts the door, waits until the public URL answers, opens the page |
-| Check-up: what is wrong? | tunnel, door, how much has been paid in, and whether the testnet demo is up |
+| Run the mainnet demo (real money) | the 4-step loop on `demo.paydlux.com` against the **mainnet** vault. Asks first: it checks the demo wallet can pay, then a dialog names the cost — each approved loop pays **0.1 XLM** out of the vault into **our own payee account** |
+| Self-test the whole loop (0.1 XLM) | drives all four steps by itself, including the signature the iPhone would make, and prints the ledger link. Run it the morning of a meeting |
+| Check-up: what is wrong? | tunnel, door, money in, **which demo is live on `demo.paydlux.com`**, the demo wallet, and whether the iPhone is attached |
+| Is the iPhone connected? | when the desk last heard from the phone, and what to do if it did not |
 | How much has been paid in? | counts the payments into the vault from the public ledger and prints the last transaction link |
-| Show the payment QR code | a QR of the donation page — a phone scans it and can pay us from its own wallet |
+| Show the payment QR code | the iPhone approval link when the mainnet demo is up (the door page otherwise) |
 | Copy the vault address | the `G…` address onto the clipboard, for pasting into a wallet |
 | Copy the mainnet key to the clipboard | the mainnet approver seed (starts `ed5a1125…` on the phone) |
 | Restart / Stop the donation door | the door only |
+| Stop the mainnet demo | the demo only; the door keeps running |
 
 Rebuild it after code changes with `npm run app:mainnet:build`.
 
-**Why this app is allowed to be one button:** the door *receives*. It reads no
-private key, signs nothing, and before it serves anything it verifies the payment
-against the public ledger. Money in the vault still needs two signatures to move,
-so pressing buttons here cannot spend anything. That is not true of the demo app,
-which is why the demo app spends play money on testnet.
+**The two demos share one address.** `demo.paydlux.com` and `desk.paydlux.com` can
+carry only one vault at a time, so starting the mainnet demo stops the testnet one
+and the other way round. The check-up names which is live; the CLI refuses to
+"reuse a demo that is already running" unless it is the same vault, so you cannot
+end up showing play money while believing the real vault is on screen.
+
+**What the mainnet demo costs, stated plainly.** Each loop the human approves pays
+`0.1 XLM` from the vault into our own payee account. Both ends belong to us, so
+nothing is lost, but it is real money leaving the vault and the ledger keeps the
+record forever. Verified on 2026-11-06: vault `6.3999900 → 6.2999800`, payee
+`2.5999900 → 2.6999900`, ledger tx
+`afd176822403212bf3dc2a9c7586f1478e64110769e200e428c26ebecc1d6219`
+(<https://stellar.expert/explorer/public/transaction/afd176822403212bf3dc2a9c7586f1478e64110769e200e428c26ebecc1d6219>).
+The vault holds `6.2999800 XLM`, of which `3.0` is rent it can never move, so about
+**32 more loops** are available. Top the vault up by paying into it from any wallet
+(the donation door page shows the address); top the demo wallet up with
+`npm run app:mainnet:fund` (one 2-of-2 transaction between our own accounts).
+
+**Why the door is allowed to be one button:** it *receives*. It reads no private
+key, signs nothing, and before it serves anything it verifies the payment against
+the public ledger. Money in the vault still needs two signatures to move. That is
+not true of the demo, which is why the demo asks twice before it starts.
 
 **There is deliberately no "sell on mainnet" button.** Selling for real money means
-the vault pays out, it needs the demo stopped (they use the same ports), and it is
-not something to fat-finger in front of an investor. If you ever need it, it is a
-deliberate terminal step: `npm run app:mainnet:sell`.
-
-The mainnet side has no iPhone queue: the door is one-way, so the demo app's
-*"is the iPhone connected?"* question does not exist here. If you want the phone to
-approve mainnet payments, that is the seller flow above, not the door.
+the vault pays out on a schedule, it needs the demo stopped (they use the same
+ports), and it is not something to fat-finger in front of an investor. If you ever
+need it, it is a deliberate terminal step: `npm run app:mainnet:sell`.
 
 ## On stage: the 5-minute script
 
@@ -148,13 +166,16 @@ Anything outside it comes back to me for a signature."*
 | Demo page prints *"nobody signed, so nothing was paid"* | expected when the phone is not holding the key for **this** network — see "Which approver key is on the iPhone" above |
 | Phone says "no approver key on this device" | press **Copy the demo key to the clipboard**, then Re-add key on the phone and paste |
 | Approval fails with a key/sequence error | the vault expects a different key than this device holds — the demo needs the **testnet** approver (`fd942abc…`), the donation door needs the **mainnet** one (`ed5a1125…`) |
+| The demo page shows the **testnet** vault when you meant mainnet, or the reverse | both demos use `demo.paydlux.com`, only one can be live. Press **Check-up: what is wrong?** — it names which one is up. Press **Run the mainnet demo** in Paydlux Mainnet.app and it stops the other one first |
+| Mainnet demo says the demo wallet cannot pay | press **Self-test the whole loop** to see the balance, then top the wallet up: `npm run app:mainnet:fund` |
 | `desk.paydlux.com` and `demo.paydlux.com` both fail to load | the Cloudflare tunnel is not running (it dies on a reboot). **Start the demo** starts it for you |
 | No internet | run the loop on the laptop's own network: `npm run app:testnet:sell`, then open `http://127.0.0.1:8787` — same page, no tunnel |
 
 ## What to say when they ask the hard questions
 
 - **"Real money?"** — Mainnet escrow releases are already on the ledger, signed on a
-  real iPhone. This demo is testnet so nobody spends anything.
+  real iPhone. The testnet demo spends nothing; the mainnet demo spends 0.1 XLM per
+  loop, from our vault into our own payee account, and the ledger link is on screen.
 - **"What stops a rogue agent?"** — the ceiling is baked into the signed transaction
   hash, not a checkbox in a form; the vault needs two keys, one of which is your
   phone; and every release is a human hold.
@@ -166,3 +187,8 @@ Anything outside it comes back to me for a signature."*
 Verified end-to-end on 2026-11-04: demo loop parked `pay_0001`, phone held and
 signed, desk went `awaiting_phone → settled`, ledger tx
 `E0BBD6FF34160DF559211369CE93F70853BCF693AE1DDD056286DBC…` on testnet.
+
+Verified end-to-end on **mainnet** on 2026-11-06 with `npm run loop:check` (park
+only) and the same script with `--yes`: parked `pay_0002`, signed, settled, ledger
+tx `afd176822403212bf3dc2a9c7586f1478e64110769e200e428c26ebecc1d6219`, and the
+buyer's second request came back with the payload instead of a 402.
