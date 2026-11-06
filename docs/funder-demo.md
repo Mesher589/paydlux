@@ -68,6 +68,39 @@ from this Mac, and a Stellar signature cannot be replayed across networks becaus
 the network is part of the hash). That is a decision to make deliberately, not at
 2am before a meeting.
 
+## The second app: **Paydlux Mainnet** (real money)
+
+Same buttons, different product. Double-click **Paydlux Mainnet** on the Desktop and
+it runs the **donation door** at `https://donate.paydlux.com` — the page an agent
+pays when it wants to buy from us for real, on mainnet, into the 2-of-2 vault.
+
+| Button | What it does |
+|---|---|
+| Start the donation door | starts the tunnel if needed, lifts the door, waits until the public URL answers, opens the page |
+| Check-up: what is wrong? | tunnel, door, how much has been paid in, and whether the testnet demo is up |
+| How much has been paid in? | counts the payments into the vault from the public ledger and prints the last transaction link |
+| Show the payment QR code | a QR of the donation page — a phone scans it and can pay us from its own wallet |
+| Copy the vault address | the `G…` address onto the clipboard, for pasting into a wallet |
+| Copy the mainnet key to the clipboard | the mainnet approver seed (starts `ed5a1125…` on the phone) |
+| Restart / Stop the donation door | the door only |
+
+Rebuild it after code changes with `npm run app:mainnet:build`.
+
+**Why this app is allowed to be one button:** the door *receives*. It reads no
+private key, signs nothing, and before it serves anything it verifies the payment
+against the public ledger. Money in the vault still needs two signatures to move,
+so pressing buttons here cannot spend anything. That is not true of the demo app,
+which is why the demo app spends play money on testnet.
+
+**There is deliberately no "sell on mainnet" button.** Selling for real money means
+the vault pays out, it needs the demo stopped (they use the same ports), and it is
+not something to fat-finger in front of an investor. If you ever need it, it is a
+deliberate terminal step: `npm run app:mainnet:sell`.
+
+The mainnet side has no iPhone queue: the door is one-way, so the demo app's
+*"is the iPhone connected?"* question does not exist here. If you want the phone to
+approve mainnet payments, that is the seller flow above, not the door.
+
 ## On stage: the 5-minute script
 
 **Step 1 — the hook (30 s, no clicking).**

@@ -64,6 +64,7 @@
     "app:testnet:sell": "tsx stellar/cli.ts sell --split --tls --showcase --price 1 --route /market/data --max 10 --daily 50",
     "app:demo": "tsx stellar/cli.ts demo",
     "app:demo:build": "bash tools/make-demo-app.sh",
+    "app:mainnet:build": "bash tools/make-demo-app.sh --mainnet",
     "tunnel:service": "bash tools/install-tunnel-service.sh",
     "app:donate": "tsx stellar/cli.ts donate --file paydlux-mainnet.json --tls --price 1",
     "site:qr": "tsx stellar/make-site-qr.ts paydlux-mainnet.json site/qr.svg",
