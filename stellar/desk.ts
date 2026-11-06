@@ -324,6 +324,15 @@ export class ApprovalDesk {
   private seq = 0;
   /** when /rules last saved, so the page can say "saved" without a query flag */
   private rulesSavedAt = 0;
+  /**
+   * When the approver app last polled /queue. The desktop portal reads /list and
+   * the phone reads /queue, so a hit here means a phone is pointed at THIS desk
+   * with THIS link. It is how a Mac can tell "the seller's phone is asleep" from
+   * "the phone is still talking to the desk from the last run" — the second one
+   * makes a live demo look dead, because the parked payment goes to a queue
+   * nobody is looking at.
+   */
+  private lastPhonePollAt = 0;
   private server?: ReturnType<typeof createServer>;
   cfg: DeskConfig;
 
@@ -1085,8 +1094,30 @@ export class ApprovalDesk {
         }
 
         // The approver app's list view. Key-gated like everything else, and it
-        // carries no paid content and no challenge XDR.
-        if (url.pathname === "/queue") return send(200, this.queue());
+        // carries no paid content and no challenge XDR. Polling it is also the
+        // proof that a phone is attached to this desk, so note the time.
+        if (url.pathname === "/queue") {
+          this.lastPhonePollAt = Date.now();
+          return send(200, this.queue());
+        }
+        // "Is the phone actually connected?" for the Mac's demo app. Counts and
+        // public ledger identities only — no payment content, no challenge, no
+        // key material — and still behind the portal key like everything else.
+        if (url.pathname === "/status") {
+          const all = this.list();
+          return send(200, {
+            ok: true,
+            network: this.cfg.vault.network,
+            vault: this.cfg.vault.address,
+            approver: this.cfg.vault.signers.approver,
+            pending: all.filter((r) => r.status === "pending").length,
+            awaitingPhone: all.filter((r) => r.status === "awaiting_phone").length,
+            settled: all.filter((r) => r.status === "settled").length,
+            phoneSeenSecondsAgo: this.lastPhonePollAt
+              ? Math.round((Date.now() - this.lastPhonePollAt) / 1000)
+              : null,
+          });
+        }
         // The app fetches the pending transaction by handle rather than asking
         // the human to paste 400 characters of base64 on a phone.
         const ch = url.pathname.match(/^\/challenge\/([\w-]+)$/);

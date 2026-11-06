@@ -182,6 +182,23 @@ const main = async () => {
   const keys = Object.keys(seen).sort().join(",");
   ok(!/secret|seed|principal|approver|portal/i.test(keys), `no key material in the row fields: ${keys}`);
 
+  // The Mac's demo app asks the desk one question: is a phone actually attached
+  // to me? /queue is what the phone polls, so polling it must show up in
+  // /status. Same key gate, counts and public identities only.
+  const stRes = await fetch(`${base}/status?k=${encodeURIComponent(portalKey)}`);
+  ok(stRes.status === 200, `/status answers the Mac's check: ${stRes.status}`);
+  const stBody: any = await stRes.json();
+  ok(stBody.phoneSeenSecondsAgo !== null && stBody.phoneSeenSecondsAgo < 5,
+    `the /queue poll above is visible in /status (${stBody.phoneSeenSecondsAgo}s ago)`);
+  ok(stBody.pending >= 1 && stBody.approver === approver.publicKey(),
+    `it reports the waiting count and the approver this vault accepts (${stBody.approver})`);
+  const stKeys = Object.keys(stBody).sort().join(",");
+  ok(!/seed|secret|principal|portal/i.test(stKeys), `no key material in the /status fields: ${stKeys}`);
+  ok(!Object.values(stBody).some((v) => typeof v === "string" && /^S[A-Z2-7]{50,}$/.test(v)),
+    "no seed value anywhere in /status");
+  const stNoKey = await fetch(`${base}/status`);
+  ok(stNoKey.status === 403, `/status without the key: ${stNoKey.status}`);
+
   step("9. Reject works from the phone, not just from the desktop");
   // Opening the phone link builds the challenge, which puts the record in
   // awaiting_phone before the human has read anything. If deny refused that
