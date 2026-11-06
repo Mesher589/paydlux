@@ -372,7 +372,7 @@ on a phone, and the ledger settles it. You are about to drive that loop.</p>
     <p>The browser signs the request — not the payment — and sends it. The seller parks it for a human.</p>
     <pre id="o3">not run</pre></div>
   <div class="step" id="s4"><h3><span class="n">4</span>A human decides — and it isn't you</h3>
-    <p>The buyer half ends at step 3. From here the <b>seller</b> decides: the parked payment appears on their phone with the amount, the payee and the deadline, and a person holds the button for 1.2 seconds. The key that signs it never leaves that device, so no code — including this page — can do it for them. If nobody is at the phone, this step waits. That is the product, not a bug.</p>
+    <p>The buyer half ends at step 3. From here the <b>seller</b> decides: the parked payment appears on their phone with the amount, the payee and the deadline, and a person holds the button for 1.2 seconds. The key that signs it never leaves that device, so no code — including this page — can do it for them. The app only checks the queue while it is open on the screen, so a phone in a pocket signs nothing: if nobody is holding it, this step waits. That is the product, not a bug.</p>
     <pre id="o4">not run</pre></div>
   <div class="step" id="s5"><h3><span class="n">5</span>The ledger proves it</h3>
     <p>Same request, now served. The transaction hash is public and verifiable without trusting this page.</p>
