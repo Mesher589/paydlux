@@ -559,13 +559,22 @@ async function demo() {
   //      and `sell` refuses to start. Stop the leftover, say exactly what was
   //      stopped, and start a clean demo.
   const live = await surfacesLive();
-  if (live.desk && live.demo && !flag("restart")) {
+  if (live.desk && live.demo && !flag("restart") && await surfacesServe(path)) {
     const key = data.desk?.portalKey as string | undefined;
     log("the demo is already running and answering — nothing to start");
     openUrl(`https://${DEMO_HOST}`);
     if (key) openUrl(`https://${PUBLIC_HOST}/phone/?k=${key}`);
     demoCard(`https://${PUBLIC_HOST}`, key, data);
     return;
+  }
+  if (live.desk && live.demo) {
+    // Answering, but on a different vault. desk.paydlux.com and demo.paydlux.com
+    // are ONE address: a testnet demo and a mainnet demo cannot both be live on
+    // it. Reusing whichever happens to be up is how a founder ends up showing
+    // play money while believing the real vault is on the screen — or the other
+    // way round, with real money moving during a "safe" demo. Stop it, say so,
+    // and start the one that was asked for.
+    log(`something else is answering ${DEMO_HOST} — stopping it so the ${network} demo can take the address`);
   }
   await clearDemoPorts(ports);
 
@@ -639,6 +648,33 @@ async function surfacesLive() {
 }
 
 /**
+ * Is the Paydlux answering those ports the SAME vault that was asked for?
+ *
+ * The public addresses are singletons: desk.paydlux.com and demo.paydlux.com can
+ * only carry one vault at a time, and the testnet demo and the mainnet demo use
+ * the same two. "It is already running" is therefore not enough — the thing that
+ * is running may be the other network. Answering a funder with play money while
+ * saying it is the real vault (or moving real money during what everyone believes
+ * is a safe demo) is the worst failure this command can have, so the reuse path
+ * checks the vault file of the process actually holding the ports.
+ */
+async function surfacesServe(path: string): Promise<boolean> {
+  const want = resolve(process.cwd(), path);
+  for (const port of [Number(arg("desk") ?? 4022), Number(arg("port") ?? 4021)]) {
+    const who = await portHolder(port);
+    const pid = Number((who?.match(/pid (\d+)/) ?? [])[1]);
+    if (!pid) return false;
+    // -ww: a truncated command line would hide the --file argument and make this
+    // say "different vault" about the very demo we are asking to reuse.
+    let cmd = "";
+    try { cmd = execSync(`ps -ww -o command= -p ${pid} 2>/dev/null`, { encoding: "utf8" }).trim(); } catch { return false; }
+    const served = (cmd.match(/--file[= ](\S+)/) ?? [])[1] ?? VAULT_FILE_DEFAULT;
+    if (resolve(process.cwd(), served) !== want) return false;
+  }
+  return true;
+}
+
+/**
  * Free the demo's ports when a stale Paydlux is squatting on one.
  *
  * Only Paydlux processes are touched, and only after saying which one and why.
@@ -675,6 +711,11 @@ async function clearDemoPorts(ports: number[]) {
 
 /** The runbook, printed where the founder is already looking. */
 function demoCard(host: string, key: string | undefined, data: any) {
+  const network = data.network ?? "testnet";
+  // The footer used to promise "nothing here costs real money" unconditionally.
+  // On the public network that is a lie, and it is the kind of lie that gets a
+  // founder spending the vault in front of an investor.
+  const real = network !== "testnet";
   console.log(`
   ┌── Paydlux demo · the 5-minute script ─────────────────────────────
   │ 1  https://paydlux.com        "an agent buys from a website"
@@ -683,7 +724,9 @@ function demoCard(host: string, key: string | undefined, data: any) {
   │ 4  back on tab 2              step 5 prints the ledger tx hash
   │ 5  ${host}/rules${key ? `?k=${key}` : ""}   spending limits, categories
   └───────────────────────────────────────────────────────────────────
-  token ${data.token?.code ?? "?"} · ${data.network ?? "testnet"} · nothing here costs real money
+  token ${data.token?.code ?? "?"} · ${network} · ${real
+    ? "REAL MONEY — each approved loop pays out of this vault"
+    : "nothing here costs real money"}
 `);
 }
 
@@ -1043,7 +1086,18 @@ async function withdraw() {
   }
 
   console.log(`sending ${want} ${data.token.code} from the vault to ${to} …`);
-  const res = await vault.release(to, String(want), principal, approver, "paydlux withdraw");
+  // A wallet that has never been funded cannot receive a payment — the ledger
+  // answers op_no_destination. For XLM the fix is the createAccount operation,
+  // which costs the same two signatures. For a token there is no fix at all:
+  // that account would need a trustline too, so say so instead of failing cryptically.
+  const exists = await vault.horizon.loadAccount(to).then(() => true).catch(() => false);
+  if (!exists && !vault.isNative) {
+    bad(`${to} has no account on the ledger, so it cannot hold ${data.token.code}.\n  send it XLM from any exchange first, then withdraw again.`);
+  }
+  if (!exists) console.log(`${to} does not exist on the ledger yet — this payment creates it.`);
+  const res = exists
+    ? await vault.release(to, String(want), principal, approver, "paydlux withdraw")
+    : await vault.fund(to, String(want), principal, approver, "paydlux withdraw");
   console.log(`done. tx ${res?.hash}`);
   console.log(`vault now holds ${await vault.balance()} ${data.token.code}`);
 }

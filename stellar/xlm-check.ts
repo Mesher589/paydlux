@@ -98,6 +98,22 @@ async function live() {
   ok(spent === Number(price), `paidToday() counts it: ${spent} of the budget spent`);
   ok(Number(await vault.balance()) < Number(bal), "the vault's own XLM balance went down");
 
+  // A wallet that has never been funded cannot receive a payment: the ledger
+  // answers op_no_destination. Found the hard way topping up the mainnet demo's
+  // agent account, where the CLI's withdraw failed with a bare "FAILED".
+  // createAccount is the operation that works, and it costs the same two
+  // signatures — so the fix belongs in the vault, not in a hand-rolled script.
+  const fresh = Keypair.random();
+  const paid = await vault.release(fresh.publicKey(), "1", principal, approver, "xlm-check fresh")
+    .then(() => "paid").catch((e) => why(e));
+  ok(/no_destination|FAILED/i.test(String(paid)),
+    `a payment to an unfunded address is refused (${String(paid).slice(0, 45)})`);
+  const made: any = await vault.fund(fresh.publicKey(), "1.5", principal, approver, "xlm-check fund")
+    .catch((e) => ({ err: why(e) }));
+  ok(!!made?.hash, `fund() creates that account instead (${made?.err ?? "ledger " + String(made.hash).slice(0, 16) + "…"})`);
+  ok(String(await vault.balance(fresh.publicKey())).startsWith("1.5"),
+    "the new account holds the starting balance");
+
   // Replay. Two different attacks, two different defences:
   //   (a) resubmit the identical envelope — Horizon de-duplicates it and hands
   //       back the ORIGINAL result, so "submit succeeded" does NOT mean "money

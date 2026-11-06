@@ -463,6 +463,27 @@ export class StellarVault {
   }
 
   /**
+   * Create an account that does not exist yet, with a starting balance. Same two
+   * signatures as release(), because it is the vault's money moving.
+   *
+   * This exists because a plain payment to an address that has never been
+   * funded is refused by the ledger (`op_no_destination`) — proven on the mainnet
+   * vault when topping up the demo's agent account. So "send XLM to a brand new
+   * wallet" (the demo agent, a seller's fresh payee, an owner's new cold
+   * account) needs createAccount, not payment. Only XLM can do this: a token
+   * payment to an unfunded account can never work, because that account would
+   * also need a trustline.
+   */
+  async fund(destination: string, amount: Amount, principal: Keypair, approver: Keypair, memo?: string) {
+    if (!this.isNative) throw new Error("only XLM can create an account; a token needs a trustline first");
+    const b = (await this.tb(this.address))
+      .addOperation(Operation.createAccount({ destination, startingBalance: amount }))
+      .setTimeout(300);
+    if (memo) b.addMemo(Memo.text(memo));
+    return sub(this.horizon, PASSPHRASE[this.network], b.build(), principal, approver);
+  }
+
+  /**
    * Kill every outstanding mandate at once. Any accepted transaction bumps the
    * vault's sequence, which invalidates all pre-authorized hashes pointing at a
    * later sequence. This is the panic button: it needs principal + approver,

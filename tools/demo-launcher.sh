@@ -29,13 +29,19 @@
 #   ./tools/demo-launcher.sh --key        copy the approver key for this vault
 #   ./tools/demo-launcher.sh --start      start the demo (or the door, with --mainnet)
 #
-#   --mainnet   switch to the donation door: donate.paydlux.com, real money IN,
-#               no desk and no iPhone queue. The bundle records the mode in
+#   --mainnet   switch to the mainnet side: the donation door (donate.paydlux.com,
+#               real money IN, no desk, no iPhone queue) and the same 4-step demo
+#               running against the MAINNET vault. The bundle records the mode in
 #               Resources/mode.txt, so "Paydlux Mainnet.app" needs no flags.
-#               There is deliberately no button here that spends: the door reads
-#               no private key, signs nothing, and the vault still needs two
-#               signatures to move money. --money prints what has been paid in
-#               (public ledger data), --address copies the vault address.
+#               The door is safe as one button: it reads no private key, signs
+#               nothing, and the vault still needs two signatures to move money.
+#               --money prints what has been paid in (public ledger data),
+#               --address copies the vault address.
+#               The demo spends, so it is not one button: --wallet first proves the
+#               agent account can pay, then a dialog names the cost (0.1 XLM per
+#               loop, vault to our own payee account) and waits for "Run it".
+#               There is still no button that sells on mainnet — that stays a
+#               deliberate terminal step (npm run app:mainnet:sell).
 #
 # Secrets: the approver seed and the portal key live in ./paydlux-vault.json
 # (0600). Nothing here prints them. The seed goes to the clipboard only when a
@@ -262,7 +268,7 @@ check_door() {
 show_qr() {
   local key link note
   mkdir -p "$LOG_DIR"
-  if [ "$MODE" = mainnet ]; then
+  if [ "$MODE" = mainnet ] && ! mainnet_demo_running; then
     # The door is public and holds no key: its link is safe to print, and a phone
     # that scans it lands on the page where an agent pays us.
     link="$DOOR"
@@ -271,6 +277,9 @@ show_qr() {
     key=$(portal_key) || return 1
     link="$DESK/phone/?k=$key"
     note="This link IS the approval gesture — anyone who scans it can approve or refuse payments. Scan it yourself, then close the picture."
+    [ "$MODE" = mainnet ] && note="$note
+
+This is the MAINNET desk: the iPhone must hold the mainnet approver key (the one that starts $(expected_key_hint)) or its signature will be refused."
   fi
   "$NODE" -e 'require("qrcode").toFile(process.argv[1], process.argv[2], { width: 900, margin: 2 }, e => process.exit(e ? 1 : 0))' "$QR" "$link" \
     || { alert "Could not draw the QR code" "The qrcode package is missing. In the project folder run: npm install" warning; return 1; }
@@ -401,22 +410,174 @@ stop_door() {
   alert "The donation door is offline" "Nobody can pay us until it is started again. Nothing was spent — the door only ever receives. The demo is untouched."
 }
 
+# --- the mainnet side: the same demo, with real money -----------------------
+# The four steps are identical to the testnet demo — a browser gets a throwaway
+# agent key, signs a request, the desk parks it, the iPhone signs, the ledger
+# settles — except the vault is the mainnet one and the settlement is real.
+#
+# What it costs, stated out loud before it starts: each completed loop pays the
+# demo price OUT of the vault and INTO our own payee account. Both ends belong to
+# us, so nothing is lost, but money does leave the vault and the ledger keeps the
+# record forever. The price is deliberately small.
+MAINNET_DEMO_PRICE=0.1
+
+mainnet_demo_running() { pgrep -f "cli.ts demo --file paydlux-mainnet.json" >/dev/null; }
+
+# Which vault the public demo URLs are serving right now. The two demos share
+# desk.paydlux.com and demo.paydlux.com, so "which one is live" is a question the
+# check-up has to answer — a founder who thinks they are showing play money while
+# the real vault is live (or the other way round) is in for a surprise.
+demo_kind() {
+  mainnet_demo_running && { echo mainnet; return; }
+  demo_running && { echo testnet; return; }
+  echo none
+}
+
+# The agent account: it signs the demo payments and pays the transaction fee, so
+# it has to exist on the ledger with a little XLM in it. Unfunded, every demo
+# payment fails at the ledger, which is the worst possible moment to find out.
+demo_wallet() {
+  "$NODE" -e '
+    const d = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    process.stdout.write(require("@stellar/stellar-sdk").Keypair.fromSecret(d.keys.agent).publicKey());
+  ' "$VAULT" 2>/dev/null
+}
+
+wallet_verdict() {
+  local addr bal
+  addr=$(demo_wallet)
+  [ -n "$addr" ] || { echo "the demo wallet address is missing from $VAULT"; return 1; }
+  bal=$(curl -s -m 12 "https://horizon.stellar.org/accounts/$addr" | "$NODE" -e '
+    let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+      let j; try { j = JSON.parse(s); } catch { console.log("unreadable"); process.exit(1); }
+      if (j.detail) { console.log("NOT funded — every demo payment will be refused by the ledger"); process.exit(1); }
+      const xlm = (j.balances || []).find(b => b.asset_type === "native");
+      const free = Number(xlm.balance) - (1 + 0.5 * (j.subentry_count || 0));
+      console.log(xlm.balance + " XLM (" + free.toFixed(2) + " spendable)");
+      process.exit(free >= 0.2 ? 0 : 1);
+    });')
+  local rc=$?
+  echo "$addr: $bal"
+  return $rc
+}
+
+confirm() { # confirm <title> <body> — 0 = the owner pressed the go button
+  [ -n "${PAYDLUX_QUIET:-}" ] && return 1
+  osascript - "$1" - "$2" <<'EOF' >/dev/null 2>&1
+on run argv
+  display dialog (item 2 of argv) with title (item 1 of argv) buttons {"Cancel", "Run it"} default button "Run it"
+end run
+EOF
+}
+
+start_mainnet_demo() {
+  local kind; kind=$(demo_kind)
+  if [ "$kind" = mainnet ] && url_up "$DEMO/"; then
+    alert "The mainnet demo is already running" "It is live at $DEMO. Press OK to open the tabs."
+    open_tabs
+    return 0
+  fi
+  local wallet rc=0; wallet=$(wallet_verdict) || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    alert "The demo wallet cannot pay yet" "The agent account that signs demo payments needs XLM for the fee:
+$wallet
+
+Top it up from the vault (two signatures, money stays ours) with:
+  npm run app:mainnet:fund" warning
+    return 1
+  fi
+  if ! confirm "Run the demo on MAINNET" "This is the real vault, not the testnet one.
+
+Each completed loop pays $MAINNET_DEMO_PRICE XLM out of the vault into our own payee account. Both ends are ours, so nothing is lost, but the payment is real and stays on the ledger forever.
+$([ "$kind" = testnet ] && printf '\nThe testnet demo is running on the same address and will be stopped.')"; then
+    return 0
+  fi
+  ensure_tunnel || alert "The secure tunnel did not start" "desk.paydlux.com and demo.paydlux.com need the Cloudflare tunnel named $TUNNEL. The log is at $TLOG." warning
+  osascript -e 'display alert "Starting the mainnet demo" message "The approval desk and the demo page come up on the MAINNET vault. Keep this window open."' >/dev/null 2>&1
+  mkdir -p "$LOG_DIR"
+  # `demo` clears whatever Paydlux holds its three ports, lifts a spent daily
+  # budget, and leaves the donation door (4024) alone.
+  nohup "$NPX" tsx stellar/cli.ts demo --file paydlux-mainnet.json --price "$MAINNET_DEMO_PRICE" --no-open >>"$LOG" 2>&1 & disown
+  for _ in $(seq 1 30); do url_up "$DESK/healthz" && url_up "$DEMO/" && break; sleep 2; done
+  if ! url_up "$DESK/healthz" || ! url_up "$DEMO/"; then
+    alert "The mainnet demo did not come up" "$DEMO is still not answering after a minute. The log is at $LOG." warning
+    return 1
+  fi
+  open_tabs
+  local hint verdict rc2=0
+  hint=$(expected_key_hint)
+  verdict=$(phone_verdict) || rc2=$?
+  if [ "$rc2" -ne 0 ]; then
+    alert "One thing first: the iPhone" "$verdict
+
+For THIS demo the iPhone must hold the MAINNET approver key — the one that starts $hint. Press OK and the QR code opens on this screen." warning
+    show_qr
+  else
+    alert "The mainnet demo is live" "$DEMO is running against the MAINNET vault. Each loop pays $MAINNET_DEMO_PRICE XLM from the vault into our own payee account. Keep the Paydlux app open on the iPhone screen."
+  fi
+}
+
+stop_mainnet_demo() {
+  mainnet_demo_running || { alert "Nothing to stop" "The mainnet demo is not running."; return 0; }
+  pkill -f "cli.ts demo --file paydlux-mainnet.json" 2>/dev/null
+  alert "The mainnet demo is offline" "$DEMO and the approval desk are down. The donation door is untouched, and nothing was spent by stopping this."
+}
+
+# The pre-meeting safety net: drive all four steps without a second person and
+# without the iPhone, and print the ledger hash. If this settles, the demo works;
+# if it fails, it fails here at 0.1 XLM instead of in front of a funder.
+prove_loop() {
+  mainnet_demo_running || {
+    alert "The mainnet demo is not running" "This test drives the live demo page. Press 'Run the mainnet demo' first."
+    return 1
+  }
+  confirm "Prove the loop end to end" "This runs the whole four-step loop by itself — including the signature your iPhone would normally make — and pays $MAINNET_DEMO_PRICE XLM from the vault into our own payee account.
+
+Run it before a meeting. If it prints a ledger link, the demo will work." || return 0
+  local out rc link
+  out=$("$NPX" tsx stellar/mainnet-loop-check.ts --yes 2>&1); rc=$?
+  link=$(printf '%s\n' "$out" | grep -o 'https://stellar.expert[^ ]*' | tail -1)
+  if [ "$rc" -eq 0 ] && [ -n "$link" ]; then
+    printf '%s' "$link" | pbcopy
+    alert "The mainnet loop works" "A real payment settled on the ledger and the buyer got its data.
+
+The ledger link is on your clipboard:
+$link"
+  else
+    alert "The loop did not settle" "$(printf '%s\n' "$out" | tail -6)
+
+The log is at $LOG." warning
+  fi
+}
+
 # ------------------------------------------------------------------ doctor
 # Everything in one plain-language page: what is up, what is not, what to press.
 doctor() {
   local hint body rc=0
   hint=$(expected_key_hint)
   if [ "$MODE" = mainnet ]; then
-    local money; money=$(money_report)
+    local money wallet kind verdict phone_rc=0; money=$(money_report); wallet=$(wallet_verdict)
+    kind=$(demo_kind)
+    verdict=""
+    [ "$kind" = mainnet ] && { verdict=$(phone_verdict); phone_rc=$?; }
     body=$(printf '%s\n' \
       "tunnel: $(tunnel_running && echo running || echo 'NOT running')" \
       "donation door: $(door_running && url_up "$DOOR" && echo 'live at '"$DOOR" || echo 'NOT answering')" \
       "money in: $money" \
-      "demo (testnet, play money): $(url_up "$DESK/healthz" && url_up "$DEMO/" && echo up || echo down)" \
+      "" \
+      "mainnet demo (real money): $([ "$kind" = mainnet ] && echo "live at $DEMO, $MAINNET_DEMO_PRICE XLM per loop" || echo not running)" \
+      "testnet demo (play money): $([ "$kind" = testnet ] && echo "live at $DEMO — it shares that address with the mainnet demo" || echo not running)" \
+      "demo wallet: $wallet" \
+      "$verdict" \
       "" \
       "This vault accepts the approver key that starts $hint.")
-    door_running && url_up "$DOOR" || rc=1
-    [ "$rc" -eq 0 ] || echo "-> press 'Start the donation door'."
+    # Two different failures, two different fixes. Saying "start the door" when
+    # the door is fine and only the phone is missing sends the founder to the
+    # wrong button.
+    local door_ok=0
+    door_running && url_up "$DOOR" && door_ok=1
+    [ "$door_ok" -eq 1 ] || { echo "-> the door is down: press 'Start the donation door'."; rc=1; }
+    [ "$phone_rc" -eq 0 ] || { echo "-> the iPhone is not attached: open Paydlux on the phone and pull to refresh, then press 'Is the iPhone connected?'."; rc=1; }
   else
     local verdict; verdict=$(phone_verdict); rc=$?
     body=$(printf '%s\n' \
@@ -424,6 +585,7 @@ doctor() {
       "desk: $(url_up "$DESK/healthz" && echo answering || echo 'not answering')" \
       "demo page: $(url_up "$DEMO/" && echo answering || echo 'not answering')" \
       "donation door: $(door_running && echo 'running (mainnet)' || echo not)" \
+      "$([ "$(demo_kind)" = mainnet ] && echo 'WARNING: the demo running on demo.paydlux.com is the MAINNET one — it spends real money. Stop it in Paydlux Mainnet.app.' || true)" \
       "" \
       "$verdict" \
       "" \
@@ -446,19 +608,26 @@ for a in "$@"; do
     --key)    copy_key; exit 0 ;;
     --address) copy_address; exit 0 ;;
     --money)  money_report; exit 0 ;;
+    --wallet) wallet_verdict; exit $? ;;
+    --mainnet-demo) start_mainnet_demo; exit 0 ;;
+    --prove) prove_loop; exit 0 ;;
     --start)  if [ "$MODE" = mainnet ]; then start_door; else start_demo; fi; exit 0 ;;
   esac
 done
 
 if [ "$MODE" = mainnet ]; then
-  # The mainnet app is deliberately narrower than the demo app. There is no
-  # button here that spends: the door only receives, and the vault's money still
-  # needs two signatures to move.
+  # The mainnet app is narrower than the demo app on purpose. The door only
+  # receives, so it is safe as one button. The demo spends, so it asks twice: the
+  # wallet has to be able to pay, and the owner has to press "Run it" on a dialog
+  # that says out loud what the money does.
   while true; do
-    state=$(door_running && url_up "$DOOR" && echo "live at $DOOR" || echo "down")
+    state=$(door_running && url_up "$DOOR" && echo "door live at $DOOR" || echo "door down")
+    kind=$(demo_kind)
+    [ "$kind" = mainnet ] && state="$state, mainnet demo UP"
+    [ "$kind" = testnet ] && state="$state, testnet demo up (same address)"
     if ! choice=$(osascript - "$state" 2>>"$LOG" <<'EOF'
 on run argv
-  choose from list {"Start the donation door", "Check-up: what is wrong?", "How much has been paid in?", "Show the payment QR code", "Copy the vault address", "Copy the mainnet key to the clipboard", "Open the donation page", "Restart the donation door", "Stop the donation door", "Quit"} with prompt "Paydlux mainnet — the door is " & item 1 of argv & ". REAL MONEY." default items {"Check-up: what is wrong?"}
+  choose from list {"Start the donation door", "Run the mainnet demo (real money)", "Self-test the whole loop (0.1 XLM)", "Check-up: what is wrong?", "Is the iPhone connected?", "How much has been paid in?", "Show the payment QR code", "Copy the vault address", "Copy the mainnet key to the clipboard", "Open the donation page", "Restart the donation door", "Stop the donation door", "Stop the mainnet demo", "Quit"} with prompt "Paydlux mainnet — " & item 1 of argv & ". REAL MONEY." default items {"Check-up: what is wrong?"}
 end run
 EOF
     ); then
@@ -468,7 +637,10 @@ EOF
     [ -z "$choice" ] || [ "$choice" = "false" ] && exit 0
     case "$choice" in
       "Start the donation door") start_door ;;
+      "Run the mainnet demo (real money)") start_mainnet_demo ;;
+      "Self-test the whole loop (0.1 XLM)") prove_loop ;;
       "Check-up: what is wrong?") doctor ;;
+      "Is the iPhone connected?") check_phone ;;
       "How much has been paid in?") check_door ;;
       "Show the payment QR code") show_qr ;;
       "Copy the vault address") copy_address ;;
@@ -476,6 +648,7 @@ EOF
       "Open the donation page") open "$DOOR" ;;
       "Restart the donation door") restart_door ;;
       "Stop the donation door") stop_door ;;
+      "Stop the mainnet demo") stop_mainnet_demo ;;
       "Quit") exit 0 ;;
     esac
   done
