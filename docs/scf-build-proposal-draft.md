@@ -26,7 +26,7 @@ Paydlux is a spending-mandate primitive for AI agents on Stellar: the vault is a
 transaction hash whose operations are exactly "pay N to P, in asset A, in window
 T, once" — is the other. The human veto is enforced by the ledger's multisig
 threshold, not by app code, so a prompt-injected or compromised agent cannot move
-money no matter what ceiling is configured. It is live on mainnet today: 22
+money no matter what ceiling is configured. It is live on mainnet today: 26
 successful vault transactions, including five escrow releases whose second
 signature came from a native iOS approver on a phone. This proposal funds the
 distance between "proven prototype" and "production primitive": hosted
@@ -48,13 +48,13 @@ The status-quo defence in every agent-payment stack is a soft ceiling in the SDK
 that can talk past a config value can talk past any number written in code.
 Paydlux removes the automatic path entirely.
 
-## 3. Current traction (verified 2026-11-04 — re-verify at submission)
+## 3. Current traction (verified 2026-11-07 — re-verify at submission)
 
 Mainnet vault `GCJGF6DYZXC3MAYXWFFSJNVGSQYNYERRFPQKC4X24WNWHPQKZNUYVWUB`
 (thresholds 2/2/2; signers: agent key, human key, mandate hash; Circle USDC
 trustline): https://horizon.stellar.org/accounts/GCJGF6DYZXC3MAYXWFFSJNVGSQYNYERRFPQKC4X24WNWHPQKZNUYVWUB
 
-- **22 successful mainnet transactions** on the vault.
+- **26 successful mainnet transactions** on the vault.
 - **5 escrow releases signed by the human approver's iPhone** — the human veto
   proven end-to-end with real money via native claimable balances (machine +
   phone 2-of-2, time-locked):
@@ -72,9 +72,9 @@ trustline): https://horizon.stellar.org/accounts/GCJGF6DYZXC3MAYXWFFSJNVGSQYNYER
   envelope — not just from app logs.
 - Live public surfaces: demo.paydlux.com (full 402 loop, no install),
   donate.paydlux.com (seller door), desk.paydlux.com (approval desk), paydlux.com.
-- npm `@paydlux/agent`: **4,216 downloads last month**, 24 versions, latest 0.1.22;
+- npm `@paydlux/agent`: **4,697 downloads last month**, 25 versions, latest 0.1.23;
   vulnerable early versions deprecated, not left up.
-- GitHub: **79 commits**, ~11k lines TS (8.2k Stellar layer), 21 executable check
+- GitHub: **98 commits**, ~11k lines TS (8.2k Stellar layer), 21 executable check
   suites, 140+ checks against live networks. github.com/Mesher589/paydlux
 - Bugs the checks caught (the ones a demo never shows): XLM vault blind to its own
   money; changeTrust that would have bricked a vault at creation; XSS into the
@@ -163,7 +163,7 @@ No token, no custom consensus, no closed core.
 ## 7. Team
 
 Solo builder (Individual submitter). Six days produced the existing stack:
-79 commits, ~11k lines TS, 24 npm releases. Stellar depth: sdk v17, thresholds/
+98 commits, ~11k lines TS, 25 npm releases. Stellar depth: sdk v17, thresholds/
 signer weights, preauth tx hashes, trustlines, XDR (wrote a standalone decoder
 because an approver must not trust a library's rendering of what a human signs).
 Security track record in public: SECURITY.md, three security releases, vulnerable
