@@ -7,8 +7,14 @@ Build Award Track: **Open Track** ✓ already set
 
 ## Submission Title *
 ```
-Paydlux — spending mandates for AI agents, enforced on the Stellar ledger
+Mandate-as-Contract: an on-chain budget no AI agent can overspend (Soroban layer for Paydlux)
 ```
+(Unique vs. the interest-form title, and it names what the funding actually pays for:
+moving spend rules onto the ledger itself. Fallback if the form still rejects it:
+```
+No agent can overspend — enforcing AI spend rules with a Soroban contract
+```
+)
 
 ## Project Type *
 Pick the closest to **"End-User Application"** (it was "Financial Protocols" on the
