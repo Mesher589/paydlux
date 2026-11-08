@@ -29,8 +29,9 @@ This matters, because a finding against one is not a finding against the other.
 | Hosted service | none. There is no Paydlux server holding anyone's funds |
 
 There is **no audit** of any of this. The vault and escrow paths have been run on
-**mainnet** with the project's own small amounts (proof transactions, listed in
-`docs/scf-traction-update.md`); no third party's funds are held, and there is no
+**mainnet** with the project's own small amounts (every one of them is public on the
+ledger: <https://stellar.expert/explorer/public/account/GCJGF6DYZXC3MAYXWFFSJNVGSQYNYERRFPQKC4X24WNWHPQKZNUYVWUB>);
+no third party's funds are held, and there is no
 hosted service taking custody of anything.
 
 ## Scope we care about most

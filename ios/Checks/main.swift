@@ -18,6 +18,10 @@ func check(_ ok: Bool, _ what: String) {
     if !ok { failures += 1 }
 }
 
+// Throwaway fixture keypair, generated for this check and never funded: the
+// derived account returns 404 on both mainnet and testnet (verified 2026-11-08).
+// It is a decoder vector, not a live key. If you ever need a real one, generate it
+// with `Keypair.random()` and keep it out of git.
 let seed = "SBUNWLOBGPWIOOKIQNDQGI6IWTFAVKIR5JLBJRGLSKW6LPSB636RC5QA"
 let wantRaw = "68db2dc133ec87394883470323c8b4ca0aa911ea5614c4cb92ade5be41f6fd11"
 let wantAddress = "GC2X7YOVDV63D7SVI4KJIM7CZFFVVMTGK7B3UWHY7TX7CKG45BLQFMKV"

@@ -23,3 +23,13 @@ paydlux-*-mainnet.json
 tmp/
 
 .wrangler/
+
+# founder identity, funding applications and investor outreach — never public
+/funding-story.md
+/docs/vc-*.md
+/docs/scf-*.md
+/docs/funder-demo.md
+/docs/boost-video-script.md
+/docs/launch-copy.md
+/brand/
+/fund-wallet-qr.png

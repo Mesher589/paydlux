@@ -103,4 +103,4 @@ tunnel for public TLS; iOS phone-approver app (Swift bridge, signed approvals);
 npm SDK [`@paydlux/agent`](https://www.npmjs.com/package/@paydlux/agent)
 (4,697 downloads/month, 25 releases) that any agent can adopt in one call.
 
-*Numbers verified 2026-11-07. Maintainer:  (solo, full-time).*
+*Numbers verified 2026-11-07. Maintainer: solo, full-time.*
