@@ -275,9 +275,9 @@ There is still **no audit** and **no real money** in the EVM prototype.
 
 ## A batch leaf could be claimed again and again (`contracts/`, fixed)
 
-Reported by **Lars** (lars@haenggi.com), who read the source and wrote to
-`founder@paydlux.com` per this policy. Confirmed against the code, and reproduced in
-Foundry, before anything was changed.
+Reported by **Lars** ([@Larslllllll](https://github.com/Larslllllll)), then 14, who read
+the source and wrote to `founder@paydlux.com` per this policy. Confirmed against the
+code, and reproduced in Foundry, before anything was changed.
 
 `publishBatch()` burns the publisher's ACT for the batch total and stores only an
 aggregate `claimed`. `claimBatch()` checked that the leaf opened to the published root
