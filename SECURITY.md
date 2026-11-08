@@ -273,6 +273,56 @@ a *signer*, and revoking removes the signer. There is no id to re-register.
 
 There is still **no audit** and **no real money** in the EVM prototype.
 
+## A batch leaf could be claimed again and again (`contracts/`, fixed)
+
+Reported by **Lars** (lars@haenggi.com), who read the source and wrote to
+`founder@paydlux.com` per this policy. Confirmed against the code, and reproduced in
+Foundry, before anything was changed.
+
+`publishBatch()` burns the publisher's ACT for the batch total and stores only an
+aggregate `claimed`. `claimBatch()` checked that the leaf opened to the published root
+and that `claimed + amount <= total`. Nothing recorded that *this* leaf had been spent.
+So one valid leaf+proof was spendable once per call, until the batch total ran out.
+
+The report's own scenario, now a test:
+
+| | |
+|---|---|
+| principal deposits | 100 USDC, publishes a batch of two 50-ACT leaves |
+| leaves | attacker 50, honest payee 50 |
+| attacker submits their leaf+proof | twice |
+| ACT minted to the attacker | 100 (entitled to 50) |
+| honest payee then claims | `BatchNotLive` — the batch closed at `claimed == total` |
+| attacker withdraws | 100 USDC, i.e. 50 of someone else's entitlement |
+
+Fixed by marking the leaf spent before anything is minted: `_claimedLeaves[batchId][leaf]`
+is checked and set ahead of the `credit.mint()`. It is keyed by the leaf hash
+(`hash(leafIndex, payee, amount)`) rather than by `leafIndex`, so the check is exact
+whatever index convention the publisher used — a tree with reused indexes cannot slip a
+second claim through, and a sparse-index tree still claims normally.
+
+Two guards came with it. `leafIndex` must be inside the published tree
+(`LeafOutOfRange`), and `publishBatch` refuses to overwrite an id that already exists
+(`BatchExists`): the batch id is `hash(root, leafCount, total, block.timestamp)`, so the
+same parameters in the same block collided and would have reset a live batch's claimed
+accounting while its first publisher's ACT stayed burned.
+
+Cost: one extra storage write per claim, 72,991 → 95,698 gas. `sdk/economics.ts` is
+updated. Re-measuring it turned up a second, unrelated error in that table: `claim_batch`
+held 32,079, which is the gas-report *minimum* — the reverted `BadProof` call — not the
+cost of a claim that works. The table now records successful calls.
+
+`contracts/test/AgentVault.t.sol` gained `test_batch_claim_replay_rejected` (the report's
+exact two-recipient case: replay refused, honest payee still paid, attacker capped at
+their own leaf) and `test_batch_leaf_index_and_id_guards`. Both fail with the spent-leaf
+write removed, so they test the fix rather than the shape of the code.
+
+`claimBatch`'s signature is unchanged, so no existing caller breaks.
+`sdk/abi/AgentVault.json` is regenerated: it adds `isLeafClaimed` and the three new errors.
+
+The Stellar path has no Merkle batch claim, so it was never exposed to this. And the
+reporter's own caveat stands: this EVM prototype is not shipped and holds no real money.
+
 ## Safe harbour
 
 Research done in good faith against testnet, following this policy, is

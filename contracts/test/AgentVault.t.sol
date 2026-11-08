@@ -540,6 +540,85 @@ contract AgentVaultTest is Test {
         vault.claimBatch(batchId, 2, payees[2], amounts[2], bad);
     }
 
+    /// @dev Regression for the reported replay: one valid leaf+proof must buy
+    ///      exactly one claim, not one claim per call until the batch total is
+    ///      exhausted (which pays the replaying address out of the other
+    ///      payees' entitlement).
+    function test_batch_claim_replay_rejected() public {
+        address attacker = makeAddr("attacker");
+        address honest = makeAddr("honest");
+        uint128 each = 50 * UNIT;
+
+        bytes32 leafA = keccak256(abi.encodePacked(uint32(0), attacker, each));
+        bytes32 leafH = keccak256(abi.encodePacked(uint32(1), honest, each));
+        bytes32 root = _hashPair(leafA, leafH);
+
+        vm.prank(principalKey);
+        bytes32 batchId = vault.publishBatch(root, 2, 100 * UNIT);
+
+        // the attacker's own leaf, claimed once
+        vm.prank(principalKey);
+        vault.claimBatch(batchId, 0, attacker, each, _proof1(leafH));
+        assertEq(credit.balanceOf(attacker), each, "first claim minted");
+        assertTrue(vault.isLeafClaimed(batchId, 0, attacker, each), "leaf recorded");
+        assertFalse(vault.isLeafClaimed(batchId, 1, honest, each), "other leaf open");
+
+        // the exact same leaf + proof, replayed
+        vm.prank(principalKey);
+        vm.expectRevert(AgentVault.AlreadyClaimed.selector);
+        vault.claimBatch(batchId, 0, attacker, each, _proof1(leafH));
+        assertEq(credit.balanceOf(attacker), each, "no second mint");
+
+        // same leafIndex, different payee: a different leaf that is not in the
+        // tree at all, so it fails the proof before it ever reaches the ledger
+        vm.prank(principalKey);
+        vm.expectRevert(AgentVault.BadProof.selector);
+        vault.claimBatch(batchId, 0, honest, each, _proof1(leafH));
+
+        // the honest payee keeps their entitlement
+        vm.prank(principalKey);
+        vault.claimBatch(batchId, 1, honest, each, _proof1(leafA));
+        assertEq(credit.balanceOf(honest), each, "honest payee paid");
+        assertEq(credit.balanceOf(attacker), each, "attacker capped at their leaf");
+
+        (, uint128 total, uint128 claimed,, bool live) = vault.batches(batchId);
+        assertEq(total, 100 * UNIT, "total");
+        assertEq(claimed, 100 * UNIT, "claimed");
+        assertFalse(live, "batch closed");
+    }
+
+    /// @dev a leafIndex outside the published tree must not be claimable, and
+    ///      republishing the same (root, leafCount, total) in one block must not
+    ///      overwrite a live batch and reset its claimed accounting.
+    function test_batch_leaf_index_and_id_guards() public {
+        address a = makeAddr("a");
+        address b = makeAddr("b");
+        uint128 each = 50 * UNIT;
+        bytes32 leafA = keccak256(abi.encodePacked(uint32(0), a, each));
+        bytes32 leafB = keccak256(abi.encodePacked(uint32(1), b, each));
+        bytes32 root = _hashPair(leafA, leafB);
+
+        vm.startPrank(principalKey);
+        bytes32 batchId = vault.publishBatch(root, 2, 100 * UNIT);
+        vm.expectRevert(AgentVault.LeafOutOfRange.selector);
+        vault.claimBatch(batchId, 2, a, each, _proof1(leafB));
+
+        vault.claimBatch(batchId, 0, a, each, _proof1(leafB));
+        vm.expectRevert(AgentVault.BatchExists.selector);
+        vault.publishBatch(root, 2, 100 * UNIT);
+        vm.stopPrank();
+
+        // the live batch still owes exactly one leaf
+        (,, uint128 claimed,, bool live) = vault.batches(batchId);
+        assertEq(claimed, each, "accounting intact");
+        assertTrue(live, "still live");
+    }
+
+    function _proof1(bytes32 sibling) internal pure returns (bytes32[] memory p) {
+        p = new bytes32[](1);
+        p[0] = sibling;
+    }
+
     function _hashPair(bytes32 a, bytes32 b) internal pure returns (bytes32) {
         return a <= b ? keccak256(abi.encodePacked(a, b)) : keccak256(abi.encodePacked(b, a));
     }

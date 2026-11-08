@@ -150,6 +150,14 @@ contract AgentVault {
     mapping(bytes32 => Escrow) public escrows;
     mapping(bytes32 => Batch) public batches;
 
+    /// @notice Which leaves of a batch were already claimed, keyed by the leaf
+    ///         hash itself (hash(leafIndex, payee, amount)) so an entitlement is
+    ///         spendable exactly once. Without this, the aggregate `claimed`
+    ///         counter alone lets one valid leaf+proof be replayed until the
+    ///         batch total is exhausted, paying the replaying address out of the
+    ///         other payees' entitlement.
+    mapping(bytes32 => mapping(bytes32 => bool)) private _claimedLeaves;
+
     uint256 public paymentCount;
     uint256 public volumeSettled;
     uint256 public feesCollected;
@@ -198,6 +206,9 @@ contract AgentVault {
     error EscrowNotMature();
     error ContentMismatch();
     error BatchNotLive();
+    error BatchExists();
+    error AlreadyClaimed();
+    error LeafOutOfRange();
     error BadProof();
     error BadAmount();
 
@@ -735,6 +746,9 @@ contract AgentVault {
         if (root == bytes32(0) || leafCount == 0 || total == 0) revert BadAmount();
         if (credit.balanceOf(msg.sender) < total) revert InsufficientCredit();
         batchId = keccak256(abi.encodePacked(root, leafCount, total, block.timestamp));
+        // Same root+leafCount+total in the same block would hash to the same id;
+        // overwriting a live batch would silently reset its claimed accounting.
+        if (batches[batchId].root != bytes32(0)) revert BatchExists();
         batches[batchId] = Batch({root: root, total: total, claimed: 0, leafCount: leafCount, live: true});
         credit.burn(msg.sender, total);
         emit BatchPublished(batchId, root, leafCount, total);
@@ -747,9 +761,15 @@ contract AgentVault {
         Batch storage b = batches[batchId];
         if (!b.live) revert BatchNotLive();
         if (amount == 0) revert BadAmount();
+        if (leafIndex >= b.leafCount) revert LeafOutOfRange();
         bytes32 leaf = keccak256(abi.encodePacked(leafIndex, payee, amount));
         if (!MerkleProof.verify(b.root, leaf, proof)) revert BadProof();
+        // One leaf, one claim: the aggregate `claimed` cap alone lets a valid
+        // proof be replayed until the batch total runs out, which pays the
+        // replaying address with the other payees' entitlement.
+        if (_claimedLeaves[batchId][leaf]) revert AlreadyClaimed();
         if (b.claimed + amount > b.total) revert OverBudget();
+        _claimedLeaves[batchId][leaf] = true;
         b.claimed += amount;
         if (b.claimed == b.total) b.live = false;
         credit.mint(payee, amount);
@@ -766,6 +786,16 @@ contract AgentVault {
     function escrowAmount(bytes32 paymentId) external view returns (uint128) {
         Escrow storage e = escrows[paymentId];
         return e.live ? e.amount : 0;
+    }
+
+    /// @notice True once this exact batch leaf (leafIndex, payee, amount) has
+    ///         been claimed.
+    function isLeafClaimed(bytes32 batchId, uint32 leafIndex, address payee, uint128 amount)
+        external
+        view
+        returns (bool)
+    {
+        return _claimedLeaves[batchId][keccak256(abi.encodePacked(leafIndex, payee, amount))];
     }
 
     // ------------------------------------------------------------------ internal

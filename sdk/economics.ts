@@ -10,8 +10,8 @@ const GAS = {
   settle_escrow: 160_000,
   charge_stream: 31_419, // session sub-charge
   open_session: 152_459,
-  publish_batch: 111_077,
-  claim_batch: 32_079, // per leaf
+  publish_batch: 111_688,
+  claim_batch: 95_698, // per leaf, successful claim (includes the spent-leaf write)
   register_mandate: 153_644,
   deposit: 113_732,
 } as const;
