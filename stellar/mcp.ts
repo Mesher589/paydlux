@@ -410,7 +410,7 @@ export async function start() {
 
 // Run only when this file is the entry point, so importing it in a check is
 // safe. Compare realpaths, not the invocation string: npm's bin launcher runs
-// this as .../node_modules/.bin/paydlux-mcp, which does not end in .js, so a
+// this as .../node_modules/.bin/paydlux, which does not end in .js, so a
 // name-based test silently turns the published command into a no-op.
 const invoked = process.argv[1]
   ? pathToFileURL(existsSync(process.argv[1]) ? realpathSync(process.argv[1]) : process.argv[1]).href

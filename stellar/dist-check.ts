@@ -29,6 +29,19 @@ if (!existsSync(join(DIST, "cli.js"))) {
   process.exit(1);
 }
 
+// 0. One bin, and the MCP server must be in the build.
+//
+// npx cannot choose between two bins: with `paydlux` and `paydlux-mcp` both
+// declared, `npx -y @paydlux/agent mcp` dies with "could not determine
+// executable to run" — the exact command the README tells people to paste. The
+// MCP server is a subcommand of the one CLI, not a second entry point.
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+const bins = Object.keys(pkg.bin ?? {});
+ok("exactly one bin so npx can resolve it", bins.length === 1, bins.join(", "));
+ok("dist/mcp.js is built", existsSync(join(DIST, "mcp.js")));
+ok("dist/mcp.js has a shebang", readFileSync(join(DIST, "mcp.js"), "utf8").startsWith("#!/usr/bin/env node"));
+ok("`mcp` is a subcommand of the one bin", readFileSync(join(DIST, "cli.js"), "utf8").includes('cmd === "mcp"'));
+
 // 1. Every emitted relative import must carry an extension, or Node cannot load it.
 const offenders: string[] = [];
 for (const f of readdirSync(DIST).filter((f) => f.endsWith(".js"))) {
