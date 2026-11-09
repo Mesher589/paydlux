@@ -10,6 +10,50 @@ Paydlux puts the guardrails **on the ledger** instead of in your code.
 **Homepage: [paydlux.com](https://paydlux.com)** — product, pricing and the
 live demo. Source: this repo. Docs and setup: below.
 
+## Install
+
+The published package is [`@paydlux/agent`](https://www.npmjs.com/package/@paydlux/agent)
+(npm, Node.js >= 20). No clone, no build, no contract to deploy:
+
+```bash
+npx -y @paydlux/agent setup      # makes a spend-limited vault and prints the agent key
+npx -y @paydlux/agent mcp        # runs the MCP server over stdio
+```
+
+Or install it once and use the `paydlux` command:
+
+```bash
+npm install -g @paydlux/agent
+paydlux mcp --file /absolute/path/to/paydlux-vault.json
+```
+
+The vault the agent may spend from is chosen by flag or environment variable —
+`--file` and `PAYDLUX_VAULT_FILE` do the same thing:
+
+```bash
+PAYDLUX_VAULT_FILE=/absolute/path/to/paydlux-vault.json npx -y @paydlux/agent mcp
+```
+
+Add it to any MCP client (LobeHub, Claude Desktop, Cursor, Codex) as a stdio
+server. This is the whole configuration:
+
+```json
+{
+  "mcpServers": {
+    "paydlux": {
+      "command": "npx",
+      "args": ["-y", "@paydlux/agent", "mcp"],
+      "env": { "PAYDLUX_VAULT_FILE": "/absolute/path/to/paydlux-vault.json" }
+    }
+  }
+}
+```
+
+Only the **agent key** is ever read by the MCP server, so the spending ceiling
+survives a compromised agent. See
+[MCP server](#mcp-server-your-agent-calls-paydlux-instead-of-a-wallet) for the
+eight tools and what each one is allowed to do.
+
 ## The Stellar path (primary — no smart contract, no faucet, no gas fight)
 
 There is no contract to audit. The whole mechanism is three native Stellar
