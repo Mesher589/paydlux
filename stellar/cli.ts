@@ -29,6 +29,7 @@ import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase.ts";
 import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate.ts";
 import { claimEscrow, pendingEscrows, prepareEscrowRelease, refundEscrow } from "./escrow.ts";
 import { describeChallenge } from "./phone.ts";
+import { start as startMcp } from "./mcp.ts";
 
 export const VAULT_FILE_DEFAULT = "paydlux-vault.json";
 
@@ -1397,6 +1398,11 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
   paydlux withdraw --to G… [--all | --amount N]
       take your money back out of the vault. Needs both human keys; the agent
       key can never do this.
+  paydlux mcp   [--file ./paydlux-vault.json] [--read-only]
+      serve Paydlux as an MCP server, so an agent in Claude, Cursor, LobeHub or
+      any other MCP client buys through the mandate instead of holding a wallet.
+      This process loads only the agent key — one of two vault signers — so it
+      cannot release money alone. --read-only drops the tools that touch money.
 
 one file holds it all: ./paydlux-vault.json (0600, never commit it)
 `;
@@ -1546,6 +1552,7 @@ export async function main() {
   if (cmd === "withdraw") return withdraw();
   if (cmd === "usdc") return usdc();
   if (cmd === "escrow") return escrow();
+  if (cmd === "mcp") return startMcp();
   bad(`unknown command "${cmd}".\n\n${HELP}`);
 }
 

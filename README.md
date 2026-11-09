@@ -7,6 +7,9 @@ real money has already been drained this way.
 
 Paydlux puts the guardrails **on the ledger** instead of in your code.
 
+**Homepage: [paydlux.com](https://paydlux.com)** — product, pricing and the
+live demo. Source: this repo. Docs and setup: below.
+
 ## The Stellar path (primary — no smart contract, no faucet, no gas fight)
 
 There is no contract to audit. The whole mechanism is three native Stellar
@@ -30,6 +33,7 @@ injection cannot talk its way past a signature check.
 stellar/vault.ts     create a 2-of-2 vault, register mandates, settle, revoke
 stellar/gateway.ts   HTTP 402 resource server; serves only after the ledger agrees
 stellar/agent.ts     the buyer side — one class, one method call
+stellar/mcp.ts       the same buyer side as an MCP server, for any agent client
 stellar/desk.ts      approval queue: a human decides, in the clear
 stellar/portal.ts    the page that human looks at
 stellar/policy.ts    daily budget / seller allowlist (the part a ledger can't count)
@@ -74,6 +78,57 @@ What the desk enforces once it is public (`npx tsx stellar/tls-check.ts`, 19 che
   `?k=` from the page URL) without the key ever appearing in the DOM
 
 No wallet, no faucet, no config.
+
+### MCP server: your agent calls Paydlux instead of a wallet
+
+The buyer side also speaks [Model Context Protocol](https://modelcontextprotocol.io),
+so an agent in Claude, Cursor, LobeHub, Codex or any other MCP client gets Paydlux's
+tools directly — no wallet, no signing library, no payment code in the agent:
+
+```bash
+npx -y @paydlux/agent mcp --file /absolute/path/to/paydlux-vault.json
+```
+
+Add it to the client the same way you add any stdio server:
+
+```json
+{
+  "mcpServers": {
+    "paydlux": {
+      "command": "npx",
+      "args": ["-y", "@paydlux/agent", "mcp", "--file", "/absolute/path/to/paydlux-vault.json"]
+    }
+  }
+}
+```
+
+| tool | what the agent gets |
+|---|---|
+| `paydlux_status` | which vault, which token, live balance, who can sign, how many mandates are live |
+| `paydlux_payment_rules` | the ceiling the human set — plus what the ledger says is already spent today |
+| `paydlux_check_payment` | dry run: would *this* amount to *this* seller pass, and which rule breaks if not |
+| `paydlux_buy` | pay a 402-gated seller. If a human has to approve, the answer is a handle and a status URL |
+| `paydlux_payment_status` | has the human decided yet |
+| `paydlux_recent_payments` | the last payments in/out, with transaction hashes an explorer can check |
+| `paydlux_escrow_status` / `paydlux_pending_escrows` | what is locked in escrow, and who can still take it back |
+
+Two things this server deliberately cannot do:
+
+- **It cannot release money on its own.** It loads the agent key and nothing
+  else — one signer of weight 1 against a release threshold of 2. There is no
+  flag that accepts the principal or approver key, so it cannot be talked into
+  using a key it never holds. A payment the mandate does not cover comes back as
+  `needs_approval`, with the handle and the desk link for the human.
+- **It cannot read a carelessly stored key file.** If the vault file is readable
+  by other users, the server refuses to start until you `chmod 600` it, and no
+  tool result will ever print a secret seed.
+
+Run it with `--read-only` and the two tools that touch money disappear from the
+tool listing entirely — useful for an agent that should report on spend but not
+cause any. `npx tsx stellar/mcp-check.ts` drives the server with a real MCP
+client and asserts all of the above (20 checks, testnet).
+
+Product page, pricing and the hosted demo: **[https://paydlux.com](https://paydlux.com)**.
 
 ### The human key does not live on the seller's machine
 

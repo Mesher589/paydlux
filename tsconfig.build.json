@@ -18,6 +18,7 @@
     "stellar/portal.ts",
     "stellar/policy.ts",
     "stellar/phone.ts",
-    "stellar/cli.ts"
+    "stellar/cli.ts",
+    "stellar/mcp.ts"
   ]
 }
