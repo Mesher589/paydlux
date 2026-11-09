@@ -1,0 +1,194 @@
+{
+  "author": "Paydlux",
+  "description": "Pays a 402-gated seller out of a 2-of-2 Stellar vault an agent cannot drain: the human's spending mandate is itself a ledger signer, so the ceiling survives a compromised agent. Read the rules, dry-run the payment, buy, then poll for the human's approval.",
+  "homepage": "https://paydlux.com",
+  "identifier": "mesher589-paydlux",
+  "name": "Paydlux — spend-limited payments for AI agents",
+  "prompts": [],
+  "resources": [],
+  "tags": [
+    "x402",
+    "http-402",
+    "stellar",
+    "usdc",
+    "ai-agents",
+    "agent-payments",
+    "escrow",
+    "payments"
+  ],
+  "tools": [
+    {
+      "name": "paydlux_status",
+      "title": "Paydlux vault status",
+      "description": "Which vault this agent spends from: network, token, live balance, the XLM rent that keeps the account alive, who can sign, and how many spending mandates are live. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_payment_rules",
+      "title": "What the human allowed",
+      "description": "The spending mandate as the human set it: per-payment ceiling, daily budget, seller allow/deny lists, category ceilings — plus what has actually been spent today according to the ledger, not this process's memory. Call this before buying.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_check_payment",
+      "title": "Would this payment be allowed?",
+      "description": "Dry-run one payment against the mandate: amount, seller, and anything already approved and waiting. Answers ok plus the headroom left, or which rule it breaks (max_per_payment, daily_budget, allowlist, denylist, category ceiling). No money moves.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "How much to pay, in the vault's token (AGPAY)"
+          },
+          "payee": {
+            "description": "Seller account id (G…, 56 chars). Defaults to the vault's configured payee.",
+            "type": "string"
+          },
+          "committed": {
+            "description": "Amount already approved and still waiting on a signature, so the ceiling counts promises as well as payments",
+            "type": "number",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "amount"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_recent_payments",
+      "title": "Recent payments from the vault",
+      "description": "The last payments in or out of the vault, straight from the Stellar ledger, with transaction hashes an explorer can verify. Read-only proof of what actually happened.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "description": "How many records, default 10",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_escrow_status",
+      "title": "Escrow state",
+      "description": "Look up a locked escrow by claimable-balance id: amount, when the seller can claim it, and until when the buyer can still take it back without the seller. Also reports who claimed it if it is already settled.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "balance_id": {
+            "type": "string",
+            "description": "The escrow's claimable balance id (starts with B…)"
+          }
+        },
+        "required": [
+          "balance_id"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_pending_escrows",
+      "title": "Escrows this vault is part of",
+      "description": "Every live escrow the vault is a claimant on, oldest release first, with each one's refund window. Read-only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {}
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_buy",
+      "title": "Buy from a 402-gated seller",
+      "description": "GET (or POST to) a URL that prices itself with HTTP 402. If the seller runs in approval mode the request is parked for a human: the result carries `handle`, `status_url` and the human's `desk` link — report those to the human and poll paydlux_payment_status. Do NOT retry the buy: a second request creates a second approval. A seller demanding a pre-authorised mandate is refused here, because creating that mandate needs the human's keys, which this server does not hold.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The paid resource, e.g. https://seller.example.com/api/data"
+          },
+          "body": {
+            "description": "Request body; sends POST instead of GET",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": true
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    },
+    {
+      "name": "paydlux_payment_status",
+      "title": "Did the human approve?",
+      "description": "One status check on a parked payment, using the status_url and handle paydlux_buy returned. Polls the seller's gateway, which needs no key. Returns the settled record (with the tx hash) once decided, or the current pending state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "status_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "The status_url from paydlux_buy — never the desk link"
+          },
+          "handle": {
+            "type": "string",
+            "description": "The payment handle from paydlux_buy"
+          },
+          "wait_seconds": {
+            "description": "Keep polling up to this long inside the call. Default 0 = one check",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 120
+          }
+        },
+        "required": [
+          "status_url",
+          "handle"
+        ],
+        "$schema": "http://json-schema.org/draft-07/schema#"
+      },
+      "execution": {
+        "taskSupport": "forbidden"
+      }
+    }
+  ],
+  "version": "0.1.26"
+}
