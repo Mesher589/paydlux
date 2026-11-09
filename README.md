@@ -156,6 +156,11 @@ Add it to the client the same way you add any stdio server:
 | `paydlux_recent_payments` | the last payments in/out, with transaction hashes an explorer can check |
 | `paydlux_escrow_status` / `paydlux_pending_escrows` | what is locked in escrow, and who can still take it back |
 
+Two prompt templates come with it — the order of the calls, not just the calls:
+`paydlux_budget_review` (what may I still spend today, in plain numbers) and
+`paydlux_buy_safely` (rules → dry run → buy once → poll for the human's
+decision). `--read-only` drops the buying prompt along with the buying tools.
+
 Two things this server deliberately cannot do:
 
 - **It cannot release money on its own.** It loads the agent key and nothing

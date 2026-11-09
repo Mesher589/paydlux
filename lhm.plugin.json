@@ -4,7 +4,37 @@
   "homepage": "https://paydlux.com",
   "identifier": "mesher589-paydlux",
   "name": "Paydlux — spend-limited payments for AI agents",
-  "prompts": [],
+  "prompts": [
+    {
+      "name": "paydlux_budget_review",
+      "title": "Review what I am allowed to spend",
+      "description": "Reports the ceiling the human set and what the ledger already counts as spent today, before anything is bought.",
+      "arguments": [
+        {
+          "name": "reason",
+          "description": "What you were about to buy — quoted back in the report to the human",
+          "required": false
+        }
+      ]
+    },
+    {
+      "name": "paydlux_buy_safely",
+      "title": "Buy from a 402 seller without overspending",
+      "description": "The safe order of calls for one purchase: read the rules, dry-run the amount, buy once, then poll for the human's decision. Never retries a buy.",
+      "arguments": [
+        {
+          "name": "url",
+          "description": "The paid resource the seller prices with HTTP 402",
+          "required": true
+        },
+        {
+          "name": "amount",
+          "description": "What the seller asks for, in tokens — used for the dry run",
+          "required": false
+        }
+      ]
+    }
+  ],
   "resources": [],
   "tags": [
     "x402",
@@ -190,5 +220,5 @@
       }
     }
   ],
-  "version": "0.1.26"
+  "version": "0.1.27"
 }

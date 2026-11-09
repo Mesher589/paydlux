@@ -403,6 +403,62 @@ export function buildServer(cfg: Cfg): McpServer {
     });
   }
 
+  // ------------------------------------------------------------ prompt templates
+  //
+  // A tool says what an agent may do; a prompt says in which order, which is
+  // where the human-in-the-loop actually survives. Two sequences: check the
+  // ceiling before buying, and buy exactly once.
+
+  server.registerPrompt("paydlux_budget_review", {
+    title: "Review what I am allowed to spend",
+    description: "Reports the ceiling the human set and what the ledger already counts as spent today, before anything is bought.",
+    argsSchema: {
+      reason: z.string().optional().describe("What you were about to buy — quoted back in the report to the human"),
+    },
+  }, ({ reason }) => ({
+    messages: [{
+      role: "user",
+      content: {
+        type: "text",
+        text: [
+          "Report my Paydlux spending position before any purchase.",
+          "1. paydlux_payment_rules — the ceiling the human set, and what the ledger already counts as spent today.",
+          "2. paydlux_status — which vault and token this is, and whether the XLM rent is short.",
+          reason ? `3. I was about to buy: ${reason}` : "3. Nothing queued; this is a check-up.",
+          "Answer in plain numbers: the ceiling, what is already gone, what is left today, and the largest single payment still allowed. Buy nothing in this turn.",
+        ].join("\n"),
+      },
+    }],
+  }));
+
+  if (!cfg.readOnly) {
+    server.registerPrompt("paydlux_buy_safely", {
+      title: "Buy from a 402 seller without overspending",
+      description: "The safe order of calls for one purchase: read the rules, dry-run the amount, buy once, then poll for the human's decision. Never retries a buy.",
+      argsSchema: {
+        url: z.string().url().describe("The paid resource the seller prices with HTTP 402"),
+        amount: z.coerce.number().positive().optional().describe("What the seller asks for, in tokens — used for the dry run"),
+      },
+    }, ({ url, amount }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            `Buy from ${url} through Paydlux, in this order:`,
+            "1. paydlux_payment_rules — is the price inside the human's ceiling, and how much of today's budget is left?",
+            amount
+              ? `2. paydlux_check_payment with amount ${amount} — if it refuses, stop and tell the human which rule broke. Do not work around it.`
+              : "2. paydlux_check_payment with the exact amount the seller asks for — if it refuses, stop and tell the human which rule broke. Do not work around it.",
+            "3. paydlux_buy with this url — once. A second call creates a second approval.",
+            "4. If the answer carries needs_approval: give the human the handle and status_url, then poll paydlux_payment_status. Never open the desk link yourself.",
+            "5. Report the tx hash from the settled record so the human can check it on the explorer.",
+          ].join("\n"),
+        },
+      }],
+    }));
+  }
+
   return server;
 }
 

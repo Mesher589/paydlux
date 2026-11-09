@@ -75,6 +75,19 @@ ok("every tool has a description", tools.tools.every((t: any) => (t.description 
   tools.tools.filter((t: any) => !(t.description ?? "").length).map((t: any) => t.name).join(", "));
 ok("input schemas are objects", tools.tools.every((t: any) => t.inputSchema?.type === "object" || !t.inputSchema));
 
+// 2b. Prompts: not only what an agent may call, but the order it should call in.
+const prompts: any = await client.listPrompts();
+const pNames: string[] = prompts.prompts.map((p: any) => p.name);
+ok("both prompts listed",
+  ["paydlux_budget_review", "paydlux_buy_safely"].every((n) => pNames.includes(n)), pNames.join(", "));
+ok("every prompt has a description", prompts.prompts.every((p: any) => (p.description ?? "").length > 40),
+  prompts.prompts.filter((p: any) => !(p.description ?? "").length).map((p: any) => p.name).join(", "));
+const pr: any = await client.getPrompt({ name: "paydlux_buy_safely", arguments: { url: "https://seller.example.com/api/data", amount: "1" } });
+const prText = JSON.stringify(pr);
+ok("buy prompt orders the safe sequence",
+  /paydlux_check_payment/.test(prText) && /once/.test(prText) && /needs_approval/.test(prText), prText.slice(0, 200));
+ok("buy prompt keeps the desk out of the agent's hands", /Never open the desk link yourself/.test(prText), prText.slice(0, 200));
+
 // 3. The instructions carry the human-in-the-loop rule and the homepage.
 const init: any = (client as any).getInstructions ? (client as any).getInstructions() : "";
 ok("instructions point at paydlux.com", String(init).includes("paydlux.com"), String(init).slice(0, 80));
@@ -120,6 +133,9 @@ await (ro as any).ready;
 const roNames: string[] = (await ro.listTools()).tools.map((t: any) => t.name);
 ok("--read-only drops paydlux_buy", !roNames.includes("paydlux_buy"), roNames.join(", "));
 ok("--read-only keeps the reading tools", roNames.includes("paydlux_payment_rules"), roNames.join(", "));
+const roPrompts: string[] = (await ro.listPrompts()).prompts.map((p: any) => p.name);
+ok("--read-only drops the buying prompt too", !roPrompts.includes("paydlux_buy_safely"), roPrompts.join(", "));
+ok("--read-only keeps the budget review", roPrompts.includes("paydlux_budget_review"), roPrompts.join(", "));
 ro.close();
 
 // 9. A key file other users can read is refused.
