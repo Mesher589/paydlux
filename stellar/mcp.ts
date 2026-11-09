@@ -190,7 +190,16 @@ function version(): string {
 export function buildServer(cfg: Cfg): McpServer {
   const policy = new PolicyEngine(cfg.policy);
   const server = new McpServer(
-    { name: "paydlux", version: version() },
+    {
+      name: "paydlux",
+      version: version(),
+      title: "Paydlux — spend-limited payments for AI agents",
+      description:
+        "Pays a 402-gated seller out of a 2-of-2 Stellar vault an agent cannot drain: the human's " +
+        "spending mandate is itself a ledger signer, so the ceiling survives a compromised agent. " +
+        "Read the rules, dry-run the payment, buy, then poll for the human's approval.",
+      websiteUrl: HOME,
+    },
     {
       instructions: [
         "Paydlux is spend-limited payments for AI agents. The money sits in a 2-of-2",
