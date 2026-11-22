@@ -324,6 +324,55 @@ write removed, so they test the fix rather than the shape of the code.
 The Stellar path has no Merkle batch claim, so it was never exposed to this. And the
 reporter's own caveat stands: this EVM prototype is not shipped and holds no real money.
 
+## A matured escrow could be clawed back (`contracts/`, fixed)
+
+Reported by **KupiaSec** (sales at kupia.io), as a follow-up to their earlier mandate-id report.
+Confirmed against the code and reproduced in Foundry before anything was changed.
+
+`refund()` is the principal's dispute door into an escrow, and its docstring said "before it
+matures" — but nothing checked `releaseAfter`. The moment the delivery window lapsed, which is
+exactly when the payee's money becomes claimable under delivery-or-lapse, the principal could
+still refund the escrow to themselves and beat anyone's `releaseExpired()` to it. The payee's
+claim is a public transaction, so a principal watching the mempool always wins that race: the
+payee delivers, the window lapses, the payee still gets zero. A lock with no time check — the
+pattern behind this month's DxSale drain, scored against our code by their hackwatch scan.
+
+| | |
+|---|---|
+| escrow for 4 USDC, 1-day window | matures |
+| principal calls `refund()` | succeeded — money back to the principal |
+| payee calls `releaseExpired()` | `EscrowNotLive` — the entitlement was gone |
+
+Fixed by enforcing the "before": at `releaseAfter` and later, `refund()` reverts
+`EscrowMatured` for everyone including the owner. Nothing is trapped by this —
+`releaseExpired()` is permissionless, so a matured escrow always ends up with the payee; only
+the destination could be wrong before. The same scan flagged `setFee` and `setFeeRecipient`
+applying inside one transaction, so a leaked owner key could take up to 10% of every later
+payment, invisibly. Both now go through a 48-hour queue: the setters queue the new parameters
+(loud `FeeQueued` event), nothing changes until anyone calls `applyFeeChange()` after the
+delay, and every payment inside the window settles at the old rate. `setPaused()` stays
+instant on purpose — a circuit breaker that waits 48 hours is not a circuit breaker — and
+`withdraw()` has never been gated by anything an admin can flip, so a stolen key was never a
+withdrawal freeze either.
+
+`contracts/test/EscrowMaturity.t.sol` covers both: the clawback refused at maturity with the
+payee still paid afterwards, the owner as a second door, the dispute path one second before
+maturity, the leaked key queuing 10% to the attacker and taking nothing, apply-before-delay
+refused, the queued pair landing together, and pause staying instant. The refund tests fail
+with the `EscrowMatured` line removed.
+
+Cost: one `TIMESTAMP` compare per `refund()` call. Nothing in the payment hot path changed:
+the queued parameters are new storage appended after the old, so `settle()` reads exactly what
+it read before, and `sdk/economics.ts` is untouched. ABI artifact regenerated: adds
+`queueFeeChange`/`applyFeeChange`/`FEE_DELAY`, the queue views, two events and three errors;
+replaces `FeeUpdated` with `FeeQueued`/`FeeApplied`. Nothing shipped called `setFee` or
+`setFeeRecipient` — the SDK never emitted them and no EVM deployment holds funds.
+
+The Stellar path was never exposed: there the escrow is a native claimable balance whose claim
+predicate carries the timer on-chain, and `refundEscrow()` refuses once the window has closed
+(`stellar/escrow.ts`, proven by `npm run test:escrow`). The shipped design enforces on the
+ledger what this EVM prototype had left as a docstring.
+
 ## Safe harbour
 
 Research done in good faith against testnet, following this policy, is

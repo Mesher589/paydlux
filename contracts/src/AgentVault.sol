@@ -162,6 +162,13 @@ contract AgentVault {
     uint256 public volumeSettled;
     uint256 public feesCollected;
 
+    /// @notice Fee parameters waiting out the delay, and when they may apply
+    ///         (0 = nothing queued). Appended after the pre-existing storage
+    ///         so no existing slot moves.
+    uint128 public pendingFee;
+    address public pendingFeeRecipient;
+    uint40 public feeChangeAt;
+
     // ------------------------------------------------------------------ events
 
     event Deposited(address indexed principal, uint256 amount);
@@ -178,7 +185,11 @@ contract AgentVault {
     event EscrowRefunded(bytes32 indexed paymentId, uint128 amount);
     event BatchPublished(bytes32 indexed batchId, bytes32 root, uint32 leafCount, uint128 total);
     event BatchClaimed(bytes32 indexed batchId, uint32 leafIndex, address indexed payee, uint128 amount);
-    event FeeUpdated(uint128 feeBps);
+    /// @dev Fee parameters move through a queue (see setFee): the queue-up is
+    ///      announced here and lands at `effectiveAt`, so users get a visible
+    ///      delay, not a surprise rate change inside a block.
+    event FeeQueued(uint128 indexed feeBps, address indexed feeRecipient, uint40 effectiveAt);
+    event FeeApplied(uint128 indexed feeBps, address indexed feeRecipient);
     event PauseChanged(bool paused);
 
     // ------------------------------------------------------------------ errors
@@ -204,6 +215,9 @@ contract AgentVault {
     error OverSession();
     error EscrowNotLive();
     error EscrowNotMature();
+    error EscrowMatured();
+    error NothingQueued();
+    error NotYetEffective();
     error ContentMismatch();
     error BatchNotLive();
     error BatchExists();
@@ -268,14 +282,47 @@ contract AgentVault {
         pendingOwner = address(0);
     }
 
+    /// @dev How long a queued fee change must wait before it can apply. A
+    ///      stolen owner key can queue a 10% fee pointed at the attacker, but
+    ///      every payment in the window still settles at the old rate, the
+    ///      queue-up is a loud public event, and withdrawals are never gated
+    ///      by anything an admin can flip.
+    uint40 public constant FEE_DELAY = 48 hours;
+
+    /// @notice Queue a new fee rate; keeps the current recipient. Applies no
+    ///         earlier than FEE_DELAY after the queue-up (see queueFeeChange).
     function setFee(uint128 newFeeBps) external onlyOwner {
-        feeBps = newFeeBps > 1000 ? 1000 : newFeeBps;
-        emit FeeUpdated(feeBps);
+        queueFeeChange(newFeeBps, feeRecipient);
     }
 
+    /// @notice Queue a new fee recipient; keeps the current rate.
     function setFeeRecipient(address to) external onlyOwner {
+        queueFeeChange(feeBps, to);
+    }
+
+    /// @notice Queue both fee parameters together. The last queue before
+    ///         maturity wins — re-queueing only ever moves the owner's own
+    ///         change further out, never the other way.
+    function queueFeeChange(uint128 newFeeBps, address to) public onlyOwner {
         if (to == address(0)) revert ZeroAddress();
-        feeRecipient = to;
+        pendingFee = newFeeBps > 1000 ? 1000 : newFeeBps;
+        pendingFeeRecipient = to;
+        feeChangeAt = uint40(block.timestamp + FEE_DELAY);
+        emit FeeQueued(pendingFee, pendingFeeRecipient, feeChangeAt);
+    }
+
+    /// @notice Promote the queued fee parameters once the delay has run.
+    ///         Deliberately permissionless: after the delay nobody between
+    ///         the vault and its own parameters should need a signature, and
+    ///         anyone calling it lands the change in the same block they
+    ///         see it queued.
+    function applyFeeChange() external {
+        if (feeChangeAt == 0) revert NothingQueued();
+        if (block.timestamp < feeChangeAt) revert NotYetEffective();
+        feeBps = pendingFee;
+        feeRecipient = pendingFeeRecipient;
+        feeChangeAt = 0;
+        emit FeeApplied(feeBps, feeRecipient);
     }
 
     function setPaused(bool p) external onlyOwner {
@@ -728,9 +775,17 @@ contract AgentVault {
     }
 
     /// @notice Principal refunds an escrowed payment before it matures.
+    /// @dev "before" is enforced, not prose: at releaseAfter the money is the
+    ///      payee's on the delivery-or-lapse condition, and refunding then was
+    ///      a principal's race against the payee's (public) releaseExpired —
+    ///      a principal watching the mempool always wins and claws back money
+    ///      the payee already earned. Nothing is trapped by refusing here:
+    ///      releaseExpired is permissionless, so a matured escrow always ends
+    ///      up with the payee.
     function refund(bytes32 paymentId) external notPaused {
         Escrow storage e = escrows[paymentId];
         if (!e.live) revert EscrowNotLive();
+        if (block.timestamp >= e.releaseAfter) revert EscrowMatured();
         if (msg.sender != e.principal && msg.sender != owner) revert NotOwner();
         e.live = false;
         credit.mint(e.principal, e.amount);
