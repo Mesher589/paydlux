@@ -671,7 +671,11 @@ async function boot() {
       err("enrolErr", e.message);
     }
   });
-  $("seed").addEventListener("keydown", (e) => { if (e.key === "Enter") $("enrolBtn").click(); });
+  // e.isComposing guard: Enter during IME composition (CJK input methods)
+  // picks a candidate word — it must not submit. keyCode 229 covers older browsers.
+  $("seed").addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) $("enrolBtn").click();
+  });
   $("forget").addEventListener("click", async () => {
     await idbDel();
     localStorage.removeItem("paydlux.pub");

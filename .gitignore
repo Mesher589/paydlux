@@ -33,3 +33,6 @@ tmp/
 /docs/launch-copy.md
 /brand/
 /fund-wallet-qr.png
+
+# local agent guardrail file — not repo content
+.hermes.md
