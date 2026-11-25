@@ -27,6 +27,7 @@ import { PolicyEngine } from "./policy.ts";
 import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelRunning, tunnelServes } from "./tunnel.ts";
 import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase.ts";
 import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate.ts";
+import { CHECK_HOST, CHECK_PORT, startCheck } from "./check.ts";
 import { claimEscrow, pendingEscrows, prepareEscrowRelease, refundEscrow } from "./escrow.ts";
 import { describeChallenge } from "./phone.ts";
 import { start as startMcp } from "./mcp.ts";
@@ -1540,6 +1541,70 @@ async function donate() {
 }
 
 
+/**
+ * `paydlux check` — the metered endpoint-check API (check.paydlux.com).
+ * Probes a stranger's 402 endpoint and returns a report of what it would
+ * demand, and the check itself is paid through our own 402 door. Same
+ * discipline as donate(): reads no seed — only the public address, network
+ * and price. This process can sign nothing and spend nothing.
+ */
+async function check() {
+  if (flag("help") || process.argv.includes("-h")) {
+    console.log(`paydlux check [--file ./paydlux-vault.json] [--price 0.08]
+               [--port ${CHECK_PORT}] [--tls]
+      a metered API: pay with your own agent's wallet, get back a verified
+      report of what a stranger's 402 endpoint demands BEFORE you pay it.
+
+      --price N  what one check costs, in XLM (default 0.08)
+      --tls      required in practice: TLS terminates at the Cloudflare tunnel
+      --port N   local port (default ${CHECK_PORT}); the public name is
+                 ${CHECK_HOST}, routed by the tunnel.`);
+    return;
+  }
+  const path = arg("file") ?? VAULT_FILE_DEFAULT;
+  if (!existsSync(path)) bad(`no vault file at ${path}. Run: paydlux setup`);
+  const data = JSON.parse(readFileSync(path, "utf8"));
+  const network: Network = data.network === "public" ? "public" : "testnet";
+  const vaultAddress: string = typeof data.vault === "string"
+    ? data.vault
+    : data.vault?.address ?? data.vault?.publicKey;
+  if (!/^G[A-Z2-7]{55}$/.test(vaultAddress ?? "")) {
+    bad(`the vault file's address is not a valid Stellar account: ${vaultAddress}`);
+  }
+  const price = arg("price") ?? "0.08";
+  if (!(Number(price) > 0)) bad("--price must be a positive number");
+
+  const tls = flag("tls") || !process.env.PAYDLUX_NO_TLS;
+  if (tls) {
+    const problem = tunnelProblem();
+    if (problem) bad("--tls cannot run here: " + problem);
+    if (!tunnelRunning()) runTunnel();
+  }
+
+  const cPort = Number(arg("port") ?? CHECK_PORT);
+  const who = await portHolder(cPort);
+  if (who) {
+    bad(`port ${cPort} (check) is already in use by ${who}.\n`
+      + `  a check API is already running. Stop it first, or this one answers\n`
+      + `  nothing and https://${CHECK_HOST} returns 502 with no error here.`);
+  }
+
+  const svc = startCheck({ hostname: CHECK_HOST, payee: vaultAddress, network, price });
+  await svc.listen(cPort);
+
+  const live = tls ? await tunnelLive(CHECK_HOST, 12) : false;
+  console.log(`
+  check API is ${live ? `LIVE at https://${CHECK_HOST}` : `listening on 127.0.0.1:${cPort}`}
+  network    ${network === "public" ? "MAINNET — real money" : "testnet — play money"}
+  price      ${price} XLM per check
+  paid into  ${vaultAddress}   (the 2-of-2 vault itself — watch every check fee land here)
+
+  this process holds no signing key. Its probe refuses private addresses,
+  redirects, and any endpoint whose payment terms it cannot fully read.
+`);
+  if (tls && !live) log(`https://${CHECK_HOST} is not answering yet. ${tunnelServes(CHECK_HOST) ? "Give the tunnel a few seconds." : `The tunnel does not route ${CHECK_HOST} — add it to ~/.cloudflared/config.yml pointing at 127.0.0.1:${cPort}, then run: cloudflared tunnel route dns paydlux-desk ${CHECK_HOST}`}`);
+}
+
 export async function main() {
   const cmd = process.argv[2];
   if (!cmd || cmd === "-h" || cmd === "--help" || cmd === "help") { console.log(HELP); return; }
@@ -1547,6 +1612,7 @@ export async function main() {
   if (cmd === "sell") return sell();
   if (cmd === "demo") return demo();
   if (cmd === "donate") return donate();
+  if (cmd === "check") return check();
   if (cmd === "status") return status();
   if (cmd === "approver") return approver();
   if (cmd === "withdraw") return withdraw();
