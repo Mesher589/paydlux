@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.mesher589/paydlux",
+  "name": "io.github.Mesher589/paydlux",
   "title": "paydlux",
   "description": "Agent payments with hard limits: 2-of-3 Stellar vault, mandate, approval desk, 402 preflight.",
   "websiteUrl": "https://paydlux.com",
@@ -8,11 +8,11 @@
     "url": "https://github.com/Mesher589/paydlux",
     "source": "github"
   },
-  "version": "0.1.29",
+  "version": "0.1.30",
   "packages": [
     {
       "registryType": "npm",
-          "identifier": "@paydlux/agent",
+      "identifier": "@paydlux/agent",
       "version": "0.1.29",
       "transport": {
         "type": "stdio"
