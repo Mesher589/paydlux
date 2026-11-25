@@ -19,7 +19,7 @@ import { execSync, spawn } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync, chmodSync, realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
-import { Account, Keypair, Asset, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
+import { Account, Keypair, Asset, Memo, Networks, Operation, TransactionBuilder } from "@stellar/stellar-sdk";
 import { StellarVault, USDC_ISSUER, passphrase, type Network } from "./vault.ts";
 import { Gateway } from "./gateway.ts";
 import { newPortalKey } from "./desk.ts";
@@ -28,6 +28,7 @@ import { PUBLIC_HOST, TUNNEL_NAME, runTunnel, tunnelLive, tunnelProblem, tunnelR
 import { DEMO_HOST, DEMO_ROUTE, startDemo } from "./showcase.ts";
 import { DONATE_HOST, DONATE_PORT, startDonate } from "./donate.ts";
 import { CHECK_HOST, CHECK_PORT, startCheck } from "./check.ts";
+import { checkAsk, checkBuy, verdictLine, type CheckTerms } from "./check-client.ts";
 import { claimEscrow, pendingEscrows, prepareEscrowRelease, refundEscrow } from "./escrow.ts";
 import { describeChallenge } from "./phone.ts";
 import { start as startMcp } from "./mcp.ts";
@@ -1384,6 +1385,11 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
       list what is locked for your vault, release one order, or take a buyer's
       money back. Release needs both human keys; on a --split vault it prints
       the challenge for your phone and stops there.
+  paydlux check <url> [--pay] [--file ./paydlux-vault.json]
+      before your agent pays a stranger's 402 endpoint: ask shows what a
+      verified check costs; --pay runs our probe and prints the verdict
+      (PAYABLE / NOT_PAYABLE / REFUSED), the parsed terms, a receipt and the
+      payment tx. The fee (0.08 XLM) is paid FROM your vault, both signatures.
   paydlux donate [--file ./paydlux-vault.json] [--usdc] [--price 1] [--tls]
       a public door where other agents pay YOU from THEIR vault.
       --usdc prices the door in Circle USDC. It refuses to start unless the
@@ -1541,6 +1547,71 @@ async function donate() {
 }
 
 
+/** `paydlux check <url>` — the client side. A stranger's 402 endpoint,
+ *  verified by our probe before your agent's money moves. Asking is free and
+ *  pays nothing; --pay settles the fee from YOUR vault with both signatures,
+ *  the same signing path as a withdrawal. This spends ON you, not FROM you,
+ *  so it goes to the ledger directly — no desk, no mandate in the way. */
+async function checkTargetUrl(url: string) {
+  const a = await checkAsk(url);
+  if (!a.ok) bad(`check API: ${a.error}`);
+  const t: CheckTerms = a.terms;
+  log(`a check of this endpoint costs ${t.maxAmountRequired} ${t.token.code} on ${t.network}`);
+  if (!flag("pay")) {
+    console.log(`\nNothing paid, nothing checked yet. To run it:\n\n  paydlux check "${url}" --pay\n\nThe fee settles to ${t.payTo.slice(0, 12)}… — the checker's own vault, on ${t.network}.`);
+    return;
+  }
+  const path = arg("file") ?? VAULT_FILE_DEFAULT;
+  if (!existsSync(path)) bad(`no vault file at ${path}. Run: paydlux setup`);
+  const data = JSON.parse(readFileSync(path, "utf8"));
+  if (data.network !== "public") {
+    bad("check.paydlux.com settles in MAINNET money, and this file is a testnet vault.\n"
+      + "  Point --file at your mainnet vault, or make one: paydlux setup --mainnet");
+  }
+  const vaultAddress: string = typeof data.vault === "string"
+    ? data.vault
+    : data.vault?.address ?? data.vault?.publicKey;
+  if (!/^G[A-Z2-7]{55}$/.test(vaultAddress ?? "")) {
+    bad(`the vault file's address is not a valid Stellar account: ${vaultAddress}`);
+  }
+  if (!data.keys?.principal) bad("this vault's signing keys are not on this machine. Run the check where the key lives, or re-add the key.");
+  if (!data.keys.approver) bad("the vault's SECOND signing key lives only on the phone, and the ledger needs both\n"
+      + "  signatures to pay anything. Run the check from a machine holding both keys.");
+  const H = "https://horizon.stellar.org";
+  const acc: any = await fetch(`${H}/accounts/${vaultAddress}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (!acc) bad(`${vaultAddress.slice(0, 8)}… is not funded on mainnet — the check is paid FROM the vault, so the vault must exist on the ledger first.`);
+  const bal = Number(acc.balances.find((b: any) => b.asset_type === "native")?.balance ?? 0);
+  if (bal < Number(t.maxAmountRequired) + 0.0001) bad(`the vault holds ${bal} XLM — a check costs ${t.maxAmountRequired} plus a fee. Fund the vault first.`);
+
+  log(`paying ${t.maxAmountRequired} XLM from ${vaultAddress.slice(0, 8)}…, memo ${t.memo}`);
+  const principal = Keypair.fromSecret(data.keys.principal);
+  const approver = Keypair.fromSecret(data.keys.approver);
+  const r = await checkBuy(url, async (terms) => {
+    const src: any = await (await fetch(`${H}/accounts/${vaultAddress}`)).json();
+    const tx = new TransactionBuilder(new Account(vaultAddress, src.sequence), { fee: "200", networkPassphrase: Networks.PUBLIC })
+      .addOperation(Operation.payment({ destination: terms.payTo, asset: Asset.native(), amount: terms.maxAmountRequired }))
+      .addMemo(Memo.text(terms.memo)).setTimeout(120).build();
+    tx.sign(principal); tx.sign(approver);
+    const sub: any = await (await fetch(`${H}/transactions`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: "tx=" + encodeURIComponent(tx.toXDR()),
+    })).json();
+    if (!sub.hash) throw new Error(JSON.stringify(sub.extras?.result_extra_info ?? sub).slice(0, 240));
+    return sub.hash;
+  }, { terms: t, pollMs: 4000, timeoutMs: 90_000 });
+
+  if (!r.ok) { console.error("\n  " + verdictLine(r) + "\n"); process.exitCode = 1; return; }
+  const rep = r.report.report;
+  console.log(`\n  verdict    ${rep.verdict}`);
+  if (rep.terms) {
+    const tok = rep.terms.token?.code ?? rep.terms.assetCode;
+    console.log(`  pays       ${tok}${rep.terms.token?.issuer ? " issued by " + String(rep.terms.token.issuer).slice(0, 8) + "…" : " (native)"} → ${String(rep.terms.payTo).slice(0, 12)}…`);
+    if (rep.terms.unparsedKeys?.length) console.log(`  unparsed   ${rep.terms.unparsedKeys.join(", ")} — we refuse to vouch for these`);
+  }
+  if (rep.reason) console.log(`  reason     ${rep.reason}`);
+  console.log(`  receipt    ${r.receipt}\n  tx         ${r.tx}\n  verify     ${r.proof.verify}\n`);
+}
+
 /**
  * `paydlux check` — the metered endpoint-check API (check.paydlux.com).
  * Probes a stranger's 402 endpoint and returns a report of what it would
@@ -1549,6 +1620,11 @@ async function donate() {
  * and price. This process can sign nothing and spend nothing.
  */
 async function check() {
+  // Two commands live under one word: `check <url>` BUYS a check on a
+  // stranger's endpoint; bare `check` runs the service itself. The URL makes
+  // the difference, exactly like `escrow` lists or releases by its arguments.
+  const target = process.argv.slice(3).find((a) => /^https?:\/\//.test(a));
+  if (target) return checkTargetUrl(target);
   if (flag("help") || process.argv.includes("-h")) {
     console.log(`paydlux check [--file ./paydlux-vault.json] [--price 0.08]
                [--port ${CHECK_PORT}] [--tls]

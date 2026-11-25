@@ -7,6 +7,8 @@ export { Gateway } from "./gateway.ts";
 export type { GatewayConfig, Route, PaymentProof } from "./gateway.ts";
 export { PaydluxAgent } from "./agent.ts";
 export type { AgentConfig, PayResponse } from "./agent.ts";
+export { CHECK_API, checkAsk, checkBuy, verdictLine } from "./check-client.ts";
+export type { CheckTerms, CheckOpts, BuyResult } from "./check-client.ts";
 export { ApprovalDesk, newPortalKey } from "./desk.ts";
 export type { DeskConfig, DeskRecord } from "./desk.ts";
 export { portalPage } from "./portal.ts";

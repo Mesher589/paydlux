@@ -22,6 +22,11 @@ export type AgentConfig = {
   approvalTimeoutMs?: number;
   pollMs?: number;
   fetch?: typeof fetch;
+  /** print a one-line nudge the first time this process meets a 402 seller
+   *  we cannot vouch for, pointing at `paydlux check`. Default on. */
+  checkHint?: boolean;
+  /** where the nudge goes. Default console.error. */
+  log?: (msg: string) => void;
 };
 
 export type PayResponse<T = string> = {
@@ -55,6 +60,7 @@ export type PayResponse<T = string> = {
 };
 
 export class PaydluxAgent {
+  private static seen = new Set<string>(); // hosts nudged this process
   private key: Keypair;
   private cfg: Required<Pick<AgentConfig, "network" | "maxRetries" | "approvalTimeoutMs" | "pollMs">> & AgentConfig;
 
@@ -80,6 +86,19 @@ export class PaydluxAgent {
     }
     const reqs = parseRequirements(first.headers.get(PAY_HEADER));
     if (!reqs) return { ok: false, status: 402, reason: "seller sent 402 without payment terms", requirements: null };
+    // The moment of doubt about a stranger's endpoint is HERE, not on a docs
+    // page. Nudge once per host per process; the ask is free, so the hint
+    // never pushes anyone into spending by surprise.
+    if (this.cfg.checkHint !== false) {
+      try {
+        const host = new URL(url).host;
+        if (!PaydluxAgent.seen.has(host)) {
+          PaydluxAgent.seen.add(host);
+          (this.cfg.log ?? ((m: string) => console.error(m)))(
+            `paydlux: first payment to ${host} — run \`paydlux check "${url}"\` to see the seller's terms verified before money moves (0.08 XLM, ~$0.01). Silence this with checkHint: false.`);
+        }
+      } catch { /* a malformed url will fail the payment anyway */ }
+    }
     // The 402 body carries the order id for escrow routes: the memo on the
     // buyer's lock transaction has to name it, so it must be known before any
     // money is locked.
