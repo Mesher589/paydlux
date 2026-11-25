@@ -88,6 +88,7 @@ done
 DESK=https://desk.paydlux.com
 DEMO=https://demo.paydlux.com
 DOOR=https://donate.paydlux.com
+CHECKAPI=https://check.paydlux.com/terms
 TUNNEL=paydlux-desk
 LOG_DIR="$HOME/Library/Logs"
 mkdir -p "$LOG_DIR"
@@ -395,8 +396,24 @@ Press OK to open the page."
     alert "The door did not come up" "donate.paydlux.com is still not answering after a minute. The log is at $LOG — press Restart the door, and if it fails again send that file to whoever set this up." warning
     return 1
   fi
-  alert "The donation door is live" "$(door_verdict)"
+  alert "The donation door is live" "$(door_verdict)\n\nThe check API is starting beside it — agents pay 0.08 XLM per check at check.paydlux.com and the fee lands in the same vault."
   open "$DOOR"
+  ensure_check
+}
+
+check_running() { pgrep -f "cli.ts check" >/dev/null; }
+
+# The check API is the same class as the door: it holds no key, signs nothing,
+# and only ever RECEIVES (0.08 XLM per check into the vault). The check is
+# billed through the door itself, so "Start the donation door" brings up both
+# money surfaces — one button, no extra decisions.
+ensure_check() {
+  if check_running && url_up "$CHECKAPI"; then return 0; fi
+  pkill -f "cli.ts check" 2>/dev/null
+  sleep 1
+  nohup "$NPX" tsx stellar/cli.ts check --file paydlux-mainnet.json --tls --price 0.08 >"$LOG_DIR/paydlux-check.log" 2>&1 & disown
+  for _ in $(seq 1 30); do url_up "$CHECKAPI" && break; sleep 2; done
+  url_up "$CHECKAPI" || echo "check API did not come up; log at $LOG_DIR/paydlux-check.log" >&2
 }
 
 restart_door() {
