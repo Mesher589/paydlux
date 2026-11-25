@@ -3,7 +3,7 @@
   "description": "Pays a 402-gated seller out of a 2-of-2 Stellar vault an agent cannot drain: the human's spending mandate is itself a ledger signer, so the ceiling survives a compromised agent. Read the rules, dry-run the payment, buy, then poll for the human's approval.",
   "homepage": "https://paydlux.com",
   "identifier": "mesher589-paydlux",
-  "name": "Paydlux — spend-limited payments for AI agents",
+  "name": "Paydlux \u2014 spend-limited payments for AI agents",
   "prompts": [
     {
       "name": "paydlux_budget_review",
@@ -12,7 +12,7 @@
       "arguments": [
         {
           "name": "reason",
-          "description": "What you were about to buy — quoted back in the report to the human",
+          "description": "What you were about to buy \u2014 quoted back in the report to the human",
           "required": false
         }
       ]
@@ -29,7 +29,7 @@
         },
         {
           "name": "amount",
-          "description": "What the seller asks for, in tokens — used for the dry run",
+          "description": "What the seller asks for, in tokens \u2014 used for the dry run",
           "required": false
         }
       ]
@@ -62,7 +62,7 @@
     {
       "name": "paydlux_payment_rules",
       "title": "What the human allowed",
-      "description": "The spending mandate as the human set it: per-payment ceiling, daily budget, seller allow/deny lists, category ceilings — plus what has actually been spent today according to the ledger, not this process's memory. Call this before buying.",
+      "description": "The spending mandate as the human set it: per-payment ceiling, daily budget, seller allow/deny lists, category ceilings \u2014 plus what has actually been spent today according to the ledger, not this process's memory. Call this before buying.",
       "inputSchema": {
         "type": "object",
         "properties": {}
@@ -84,7 +84,7 @@
             "description": "How much to pay, in the vault's token (AGPAY)"
           },
           "payee": {
-            "description": "Seller account id (G…, 56 chars). Defaults to the vault's configured payee.",
+            "description": "Seller account id (G\u2026, 56 chars). Defaults to the vault's configured payee.",
             "type": "string"
           },
           "committed": {
@@ -131,7 +131,7 @@
         "properties": {
           "balance_id": {
             "type": "string",
-            "description": "The escrow's claimable balance id (starts with B…)"
+            "description": "The escrow's claimable balance id (starts with B\u2026)"
           }
         },
         "required": [
@@ -158,7 +158,7 @@
     {
       "name": "paydlux_buy",
       "title": "Buy from a 402-gated seller",
-      "description": "GET (or POST to) a URL that prices itself with HTTP 402. If the seller runs in approval mode the request is parked for a human: the result carries `handle`, `status_url` and the human's `desk` link — report those to the human and poll paydlux_payment_status. Do NOT retry the buy: a second request creates a second approval. A seller demanding a pre-authorised mandate is refused here, because creating that mandate needs the human's keys, which this server does not hold.",
+      "description": "GET (or POST to) a URL that prices itself with HTTP 402. If the seller runs in approval mode the request is parked for a human: the result carries `handle`, `status_url` and the human's `desk` link \u2014 report those to the human and poll paydlux_payment_status. Do NOT retry the buy: a second request creates a second approval. A seller demanding a pre-authorised mandate is refused here, because creating that mandate needs the human's keys, which this server does not hold.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -196,7 +196,7 @@
           "status_url": {
             "type": "string",
             "format": "uri",
-            "description": "The status_url from paydlux_buy — never the desk link"
+            "description": "The status_url from paydlux_buy \u2014 never the desk link"
           },
           "handle": {
             "type": "string",
@@ -220,5 +220,5 @@
       }
     }
   ],
-  "version": "0.1.27"
+  "version": "0.1.31"
 }
