@@ -8,12 +8,12 @@
     "url": "https://github.com/Mesher589/paydlux",
     "source": "github"
   },
-  "version": "0.1.30",
+  "version": "0.1.31",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@paydlux/agent",
-      "version": "0.1.29",
+      "version": "0.1.31",
       "transport": {
         "type": "stdio"
       },
