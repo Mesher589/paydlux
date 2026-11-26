@@ -8,7 +8,8 @@ const GAS = {
   settle_repeat_payee: 91_000,
   settle_new_payee: 143_000,
   settle_escrow: 160_000,
-  charge_stream: 31_419, // session sub-charge
+  charge_stream: 31_419, // session sub-charge (storage-increment measure, predates the nonce guard)
+  charge_nonce_guard: 22_851, // per-charge cost of the chargeNonceUsed spent-set (forge --gas-report min, charge 120_342 -> 143_193, via-IR)
   open_session: 152_459,
   publish_batch: 111_688,
   claim_batch: 95_698, // per leaf, successful claim (includes the spent-leaf write)

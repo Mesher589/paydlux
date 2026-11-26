@@ -146,6 +146,10 @@ contract AgentVault {
     mapping(bytes32 => bool) public mandateSeen;
     mapping(bytes32 => bool) public intentUsed;
     mapping(bytes32 => bool) public sessionNonceUsed;
+    /// @dev Spent-set for charge() claims, keyed by ("charge", sessionId, nonce).
+    ///      Without it the nonce in the signed digest is decoration: one valid
+    ///      claim replays until the session ceiling burns out (DxSale pattern).
+    mapping(bytes32 => bool) public chargeNonceUsed;
     mapping(bytes32 => Session) public sessions;
     mapping(bytes32 => Escrow) public escrows;
     mapping(bytes32 => Batch) public batches;
@@ -719,6 +723,12 @@ contract AgentVault {
             )
         );
         if (_recover(digest, sig) != m.agent) revert BadSignature();
+
+        // One claim, one payment — enforced after the signature check so an
+        // unauthorized caller cannot burn a nonce, and before any state change.
+        bytes32 chargeKey = keccak256(abi.encodePacked("charge", sessionId, nonce));
+        if (chargeNonceUsed[chargeKey]) revert AlreadyUsed();
+        chargeNonceUsed[chargeKey] = true;
 
         s.charged += amount;
         (uint128 fee, uint128 net) = _debit(s.mandateId, amount);

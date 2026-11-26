@@ -373,6 +373,52 @@ predicate carries the timer on-chain, and `refundEscrow()` refuses once the wind
 (`stellar/escrow.ts`, proven by `npm run test:escrow`). The shipped design enforces on the
 ledger what this EVM prototype had left as a docstring.
 
+## A signed session charge could be replayed until the ceiling (`contracts/`, fixed)
+
+Third report from **KupiaSec** (sales at kupia.io) — this one aimed at `charge()`, the same
+file their refund fix lives in. Confirmed against the code and reproduced in Foundry (a
+proof-of-bug test that asserted the double-payment succeeding) before anything was changed.
+
+`charge()` put a nonce and a validity window into the signed digest and then never looked at
+them again. Every other signed door in the contract had learned this lesson — `openSession()`
+records its nonce in `sessionNonceUsed`, `settle()` has `intentUsed`, both escrow doors are
+one-shot `live` flags — but `charge()` verified the agent signature and paid, paid, paid: the
+same claim, byte for byte, as many times as the session ceiling allowed. That is the DxSale
+`unlockToken()` pattern (never decremented `lockedAmount`, drained the locker in 250
+identical calls), scored against our code by their hackwatch scan.
+
+| | |
+|---|---|
+| session ceiling 20, one 5-unit claim signed | payee legitimately served once |
+| same claim replayed | succeeded — `s.charged` just grew |
+| replayed to 4 units over | every intermediate replay paid; the ceiling stopped it, not the nonce |
+
+Two facts bound the blast radius, and neither is a reason to leave it: the replay needs a
+genuine agent signature (it cannot be forged, and it can only ever pay the session's
+allowlisted `s.payee`), and it cannot exceed the session ceiling or the mandate's total
+budget — the budgets were enforced, they were just finishable early by whoever held one
+published claim. Watch the payee's stream, copy one claim, replay it: a 5-unit call becomes
+the whole session.
+
+Fixed with the spent-set the file already uses twice: `chargeNonceUsed` keyed by
+`keccak256(abi.encodePacked("charge", sessionId, nonce))`, checked after the signature check
+so an unauthorized caller cannot burn an agent nonce, and set before any state change.
+`test_charge_replay_rejected` replays the exact claim and asserts `AlreadyUsed` and that no
+money moved; `test_charge_replay_is_per_session` keeps the feature intact — the same agent
+nonce in two different sessions is two different claims, which is the whole point of
+streaming. Both fail with the guard line removed.
+
+Cost: 22,851 gas per sub-charge (measured `forge --gas-report` min, 120,342 → 143,193,
+via-IR) — a cold SSTORE and its read, priced at roughly a hundred-millionth of a dollar on
+Base at demo rates. `sdk/economics.ts` records it as `charge_nonce_guard`. ABI artifact
+regenerated: adds the `chargeNonceUsed(bytes32)` getter, additive only.
+
+As the reporters honestly flagged, their scan cannot see deployment state, so it is stated
+here: no EVM deployment of this contract holds funds, and the production rails are Stellar
+2-of-2 vaults, where the session concept does not exist — each payment is a discrete
+ledger transaction. The EVM path is a prototype; this fix makes the prototype as honest as
+the ledger it stands in for.
+
 ## Safe harbour
 
 Research done in good faith against testnet, following this policy, is

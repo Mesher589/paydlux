@@ -425,6 +425,45 @@ contract AgentVaultTest is Test {
         assertEq(credit.balanceOf(payee), 200 * 100_000 - (200 * 100_000 * 100) / 10000, "streamed net");
     }
 
+    // KupiaSec/hackwatch (DxSale unlockToken pattern): charge() verified a
+    // nonce-bearing agent signature but never recorded the nonce, so one signed
+    // claim replayed until the session ceiling burned out. Fixed with the
+    // chargeNonceUsed spent-set; these tests are the lock on it.
+    function test_charge_replay_rejected() public {
+        uint256 sNonce = 1;
+        uint64 validUntil = uint64(block.timestamp + 3600);
+        bytes32 structHash = keccak256(abi.encode(vault.SESSION_TYPEHASH(), mandateId, payee, 20 * UNIT, validUntil, sNonce));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), structHash)));
+        bytes32 sessionId = vault.openSession(mandateId, payee, 20 * UNIT, validUntil, sNonce, new bytes32[](0), abi.encodePacked(r, s, v));
+
+        uint64 vu = uint64(block.timestamp + 3600);
+        bytes32 ch = keccak256(abi.encode(vault.CHARGE_TYPEHASH(), sessionId, 5 * UNIT, 7, vu));
+        (uint8 cv, bytes32 cr, bytes32 cs) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), ch)));
+        bytes memory claim = abi.encodePacked(cr, cs, cv);
+
+        vault.charge(sessionId, 5 * UNIT, 7, vu, claim);
+        uint256 afterOne = credit.balanceOf(payee);
+        vm.expectRevert(AgentVault.AlreadyUsed.selector);
+        vault.charge(sessionId, 5 * UNIT, 7, vu, claim);
+        assertEq(credit.balanceOf(payee), afterOne, "replay moved no money");
+    }
+
+    function test_charge_replay_is_per_session() public {
+        // Same agent nonce in two different sessions is two different claims.
+        uint64 validUntil = uint64(block.timestamp + 3600);
+        uint64 vu = uint64(block.timestamp + 3600);
+        bytes32[] memory ids = new bytes32[](2);
+        for (uint256 i = 0; i < 2; i++) {
+            bytes32 sh = keccak256(abi.encode(vault.SESSION_TYPEHASH(), mandateId, payee, 20 * UNIT, validUntil, i + 1));
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), sh)));
+            ids[i] = vault.openSession(mandateId, payee, 20 * UNIT, validUntil, i + 1, new bytes32[](0), abi.encodePacked(r, s, v));
+            bytes32 ch = keccak256(abi.encode(vault.CHARGE_TYPEHASH(), ids[i], 1 * UNIT, 7, vu)); // same charge nonce both times
+            (uint8 cv, bytes32 cr, bytes32 cs) = vm.sign(AGENT_PK, keccak256(abi.encodePacked("\x19\x01", vault.DOMAIN_SEPARATOR(), ch)));
+            vault.charge(ids[i], 1 * UNIT, 7, vu, abi.encodePacked(cr, cs, cv));
+        }
+        assertEq(credit.balanceOf(payee), 2 * 1 * UNIT - (2 * 1 * UNIT * 100) / 10000, "both sessions paid once");
+    }
+
     function test_session_cannot_exceed_ceiling() public {
         uint256 sNonce = 1;
         uint64 validUntil = uint64(block.timestamp + 3600);
