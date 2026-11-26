@@ -67,6 +67,21 @@ export function startCheck(cfg: CheckConfig) {
     const url = new URL(req.url ?? "/", `http://${cfg.hostname}`);
     const p = url.pathname;
     if (p === "/terms") { send(200, terms()); return; }
+    // A metered service whose front door answers 404 fails the one test the
+    // x402 world runs on it: GET / must say Payment Required. This 402 is
+    // self-describing (how to buy, what it costs) without issuing an order —
+    // issuance stays POST-only by design.
+    if (p === "/") {
+      send(402, {
+        error: "payment_required",
+        service: "paydlux check — read a 402 endpoint's terms before your agent pays it",
+        how: 'POST /check {"url":"https://target"} to open an order, pay the terms it returns, then GET /check?order=ID&tx=HASH',
+        price: cfg.price + " XLM (native) on stellar:public",
+        docs: "https://paydlux.com/check/",
+        terms: "https://check.paydlux.com/terms",
+      });
+      return;
+    }
     if (p !== "/check") { send(404, { error: "not_found", hint: "POST /check {url, vault?}; then GET /check?order=ID&tx=HASH" }); return; }
 
     sweepPending();

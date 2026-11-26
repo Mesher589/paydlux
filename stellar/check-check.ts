@@ -78,6 +78,7 @@ const main = async () => {
   { const r = await api("/check", {}, "evil.example"); ok(r.status === 403, "wrong Host → 403"); }
   { const r = await api("/check", { method: "POST", body: "{}" }); ok(r.status === 400, "POST without url → 400"); }
   { const r = await api("/terms"); const j: any = r.json; ok(j.maxAmountRequired === PRICE && j.payTo === PAYEE, "/terms publishes price and payee"); }
+  { const r = await api("/"); ok(r.status === 402 && /payment_required/.test(String(r.json?.error)) && String(r.json?.price).includes(PRICE), "GET / -> 402 self-describing (a metered front door speaks 402)"); }
   {
     // simulate the tunnel forwarding plain HTTP: Cloudflare sets x-forwarded-proto
     const fwd: any = await new Promise((resolve, reject) => {
