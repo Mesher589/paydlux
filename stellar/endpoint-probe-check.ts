@@ -75,7 +75,7 @@ const main = async () => {
   {
     const t = stubTransport(402, { "x-payment": "{not json" });
     const r = await probeEndpoint("https://door.example", { resolve: async () => ["93.184.216.34"], transport: t });
-    ok(r.verdict === "NOT_PAYABLE" && r.reason.includes("refuse"), "unparseable 402 terms → refuses to vouch");
+    ok(r.verdict === "UNREADABLE" && r.reason.includes("refuse"), "unparseable 402 terms → UNREADABLE, distinct from NOT_PAYABLE");
   }
   {
     const p = parsePayHeader(JSON.stringify({ payTo: "GX", scheme: "s" }));

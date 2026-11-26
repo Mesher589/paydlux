@@ -1388,7 +1388,7 @@ const HELP = `paydlux — get paid by AI agents, with a human in the loop.
   paydlux check <url> [--pay] [--file ./paydlux-vault.json]
       before your agent pays a stranger's 402 endpoint: ask shows what a
       verified check costs; --pay runs our probe and prints the verdict
-      (PAYABLE / NOT_PAYABLE / REFUSED), the parsed terms, a receipt and the
+      (PAYABLE / NOT_PAYABLE / UNREADABLE / REFUSED), the parsed terms, a receipt and the
       payment tx. The fee (0.08 XLM) is paid FROM your vault, both signatures.
   paydlux donate [--file ./paydlux-vault.json] [--usdc] [--price 1] [--tls]
       a public door where other agents pay YOU from THEIR vault.

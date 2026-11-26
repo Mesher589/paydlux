@@ -28,6 +28,7 @@ export type ProbeTerms = {
 export type ProbeResult =
   | { verdict: "PAYABLE"; security: ProbeSecurity; terms: ProbeTerms }
   | { verdict: "NOT_PAYABLE"; reason: string; security: ProbeSecurity }
+  | { verdict: "UNREADABLE"; reason: string; security: ProbeSecurity; unparsedKeys?: string[] }
   | { verdict: "REFUSED"; reason: string; security: ProbeSecurity };
 
 export function isPrivateIp(ip: string): boolean {
@@ -125,6 +126,12 @@ export async function probeEndpoint(
     return { verdict: "NOT_PAYABLE", reason: "answered 402 but carries no payment-terms header we know", security: sec };
   const terms = parsePayHeader(String(body.headers[hdr]));
   if (!terms)
-    return { verdict: "NOT_PAYABLE", reason: `answered 402 with ${hdr}, but its terms do not fully parse — we refuse to vouch for what we cannot read`, security: sec };
+    // UNREADABLE is its own state, deliberately NOT NOT_PAYABLE: an
+    // unparseable header is usually OUR parser gap on a legitimate endpoint
+    // (a fixable thing), while NOT_PAYABLE is a fact about the endpoint
+    // (there is nothing there to pay). Same label, opposite fixes — a gate
+    // that conflates them gets widened by attrition until the third state
+    // quietly means "pass". (Design point credited to @mickyarun on dev.to.)
+    return { verdict: "UNREADABLE", reason: `answered 402 with ${hdr}, but its terms do not fully parse — we refuse to vouch for what we cannot read; this may be our parser gap, not the endpoint's fault`, security: sec };
   return { verdict: "PAYABLE", security: sec, terms: { ...terms, headerName: hdr } };
 }
